@@ -421,7 +421,7 @@ with sync_playwright() as p:
             page.wait_for_timeout(1500)
 
             html = page.content()
-            final = page.url()
+            final = page.url
 
             items = extract(
                 html,

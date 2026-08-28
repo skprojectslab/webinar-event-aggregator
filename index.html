@@ -9,17 +9,16 @@
 <style>
 /* Date selector - dark theme */
 input[type="date"] {
-  color: #e2e8f0 !important;
-  background-color: #0b1220 !important;
-  color-scheme: dark;
-  cursor: pointer;
+    color: #e2e8f0 !important;
+    background-color: #0b1220 !important;
+    color-scheme: dark;
+    cursor: pointer;
 }
 
 input[type="date"]::-webkit-calendar-picker-indicator {
-  opacity: 1 !important;
-  cursor: pointer;
-  background-color: transparent;
-}
+    opacity: 1 !important;
+    cursor: pointer;
+    filter: invert(1) brightness(1.2);
 }
 body{
   margin:0;

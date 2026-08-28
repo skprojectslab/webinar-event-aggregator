@@ -7,19 +7,18 @@
 <title>Webinar & Event Aggregator</title>
 
 <style>
-  /* Fix date selector visibility on dark theme */
+/* Date selector - dark theme */
 input[type="date"] {
   color: #e2e8f0 !important;
-  background: #0b1220 !important;
+  background-color: #0b1220 !important;
   color-scheme: dark;
+  cursor: pointer;
 }
 
 input[type="date"]::-webkit-calendar-picker-indicator {
-  filter: invert(1) brightness(2);
-  opacity: 1;
+  opacity: 1 !important;
   cursor: pointer;
-  width: 18px;
-  height: 18px;
+  background-color: transparent;
 }
 }
 body{

@@ -4,7 +4,7 @@ from urllib.parse import urljoin, urldefrag, urlparse
 from pathlib import Path
 from bs4 import BeautifulSoup
 from playwright.sync_api import sync_playwright
-
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from sources import SOURCES
 
 BASE = Path(__file__).resolve().parent.parent

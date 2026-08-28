@@ -2,7 +2,7 @@ import hashlib
 import json
 import re
 import sys
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urljoin, urldefrag, urlparse
 
@@ -22,8 +22,16 @@ UA = (
 )
 
 
+# =========================================================
+# HELPERS
+# =========================================================
+
 def clean(x):
     return re.sub(r"\s+", " ", str(x or "")).strip()
+
+
+def now_utc():
+    return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
 
 def abs_url(raw, base):
@@ -47,6 +55,10 @@ def abs_url(raw, base):
 
     return u
 
+
+# =========================================================
+# DATE PARSING
+# =========================================================
 
 def parse_date(text):
     text = clean(text)
@@ -111,6 +123,10 @@ def parse_date(text):
     return None
 
 
+# =========================================================
+# EVENT TYPE
+# =========================================================
+
 def event_type(text, fallback):
     t = clean(text).lower()
 
@@ -128,6 +144,10 @@ def event_type(text, fallback):
 
     return fallback
 
+
+# =========================================================
+# CATEGORY
+# =========================================================
 
 def category(text, fallback):
     t = " " + clean(text).lower() + " "
@@ -167,6 +187,10 @@ def category(text, fallback):
     return fallback
 
 
+# =========================================================
+# EVENT DETECTION
+# =========================================================
+
 def eventish(url, text):
     return bool(
         re.search(
@@ -178,7 +202,42 @@ def eventish(url, text):
     )
 
 
+# =========================================================
+# STABLE EVENT ID
+# =========================================================
+
+def stable_event_id(e):
+    """
+    Create an ID that does NOT change every time the scraper runs.
+
+    Primary identity:
+        source + event URL
+
+    Fallback:
+        source + title + date
+    """
+
+    source_id = clean(e.get("source_id")).lower()
+    event_url = clean(e.get("event_url")).lower()
+
+    if event_url:
+        identity = f"{source_id}|{event_url}"
+    else:
+        title = clean(e.get("title")).lower()
+        date = clean(e.get("date"))[:10]
+        identity = f"{source_id}|{title}|{date}"
+
+    return hashlib.sha1(
+        identity.encode("utf-8")
+    ).hexdigest()
+
+
+# =========================================================
+# EXTRACT EVENTS
+# =========================================================
+
 def extract(html, final_url, source):
+
     soup = BeautifulSoup(html, "lxml")
 
     cards = soup.select(
@@ -189,6 +248,7 @@ def extract(html, final_url, source):
     out = []
 
     def add(card):
+
         title_node = card.select_one(
             "h1,h2,h3,h4,.event-title,.title,[class*='title']"
         )
@@ -232,6 +292,7 @@ def extract(html, final_url, source):
         reg = None
 
         for a in card.select("a[href]"):
+
             u = abs_url(
                 a.get("href"),
                 final_url,
@@ -288,27 +349,26 @@ def extract(html, final_url, source):
             "event_url": event_url,
             "registration_url": reg or event_url,
             "source_url": final_url,
-            "scraped_at": datetime.utcnow().isoformat() + "Z",
+            "scraped_at": now_utc(),
         }
 
-        e["id"] = hashlib.sha1(
-            json.dumps(
-                e,
-                sort_keys=True,
-            ).encode()
-        ).hexdigest()
+        e["id"] = stable_event_id(e)
 
         out.append(e)
 
     for c in cards[:500]:
         add(c)
 
-    # Fallback: search individual links if event cards
-    # were not detected.
+    # -----------------------------------------------------
+    # FALLBACK
+    # -----------------------------------------------------
+
     if not out:
+
         seen = set()
 
         for a in soup.select("a[href]"):
+
             u = abs_url(
                 a.get("href"),
                 final_url,
@@ -367,36 +427,79 @@ def extract(html, final_url, source):
                 "event_url": u,
                 "registration_url": u,
                 "source_url": final_url,
-                "scraped_at": (
-                    datetime.utcnow().isoformat()
-                    + "Z"
-                ),
+                "scraped_at": now_utc(),
             }
 
-            e["id"] = hashlib.sha1(
-                json.dumps(
-                    e,
-                    sort_keys=True,
-                ).encode()
-            ).hexdigest()
+            e["id"] = stable_event_id(e)
 
             out.append(e)
 
     return out
 
 
-# ---------------------------------------------------------
+# =========================================================
+# LOAD PREVIOUS DATA
+# =========================================================
+
+previous_events = {}
+
+if OUT.exists():
+
+    try:
+
+        previous_payload = json.loads(
+            OUT.read_text(
+                encoding="utf-8"
+            )
+        )
+
+        old_events = previous_payload.get(
+            "events",
+            []
+        )
+
+        for old in old_events:
+
+            old_id = old.get("id")
+
+            if old_id:
+                previous_events[old_id] = old
+
+        print(
+            f"[HISTORY] Loaded {len(previous_events)} previous events."
+        )
+
+    except Exception as ex:
+
+        print(
+            f"[HISTORY] Could not read previous events: {repr(ex)}"
+        )
+
+        previous_events = {}
+
+
+# =========================================================
 # MAIN SCRAPER
-# ---------------------------------------------------------
+# =========================================================
 
 all_events = []
 results = []
 
+scrape_started = now_utc()
+
+
 with sync_playwright() as p:
-    browser = p.chromium.launch(headless=True)
+
+    browser = p.chromium.launch(
+        headless=True
+    )
 
     for s in SOURCES:
+
+        page = None
+
         try:
+
             page = browser.new_page(
                 user_agent=UA,
                 viewport={
@@ -421,6 +524,7 @@ with sync_playwright() as p:
             page.wait_for_timeout(1500)
 
             html = page.content()
+
             final = page.url
 
             items = extract(
@@ -443,9 +547,8 @@ with sync_playwright() as p:
                 f"[OK] {s['name']}: {len(items)}"
             )
 
-            page.close()
-
         except Exception as ex:
+
             results.append(
                 {
                     "source": s["name"],
@@ -459,49 +562,117 @@ with sync_playwright() as p:
                 f"[FAIL] {s['name']}: {repr(ex)}"
             )
 
+        finally:
+
+            if page:
+                page.close()
+
     browser.close()
 
 
-# ---------------------------------------------------------
-# DEDUPLICATE EVENTS
-# ---------------------------------------------------------
+# =========================================================
+# DEDUPLICATE
+# =========================================================
 
 seen = set()
+
 dedup = []
 
 for e in all_events:
-    k = (
-        e["source_id"],
-        clean(e["title"]).lower(),
-        (e.get("date") or "")[:10],
-        e.get("event_url"),
-    )
 
-    if k not in seen:
-        seen.add(k)
-        dedup.append(e)
+    # Ensure stable ID exists.
+    e["id"] = stable_event_id(e)
 
+    if e["id"] in seen:
+        continue
+
+    seen.add(e["id"])
+
+    dedup.append(e)
+
+
+# =========================================================
+# NEW EVENT DETECTION
+# =========================================================
+
+new_count = 0
+
+today = now_utc()
+
+
+for e in dedup:
+
+    event_id = e["id"]
+
+    if event_id in previous_events:
+
+        old = previous_events[event_id]
+
+        # Preserve original first-seen date.
+        e["first_seen"] = old.get(
+            "first_seen",
+            old.get(
+                "scraped_at",
+                scrape_started,
+            ),
+        )
+
+        # This event existed before.
+        e["is_new"] = False
+
+    else:
+
+        # Genuinely new event.
+        e["first_seen"] = today
+
+        e["is_new"] = True
+
+        new_count += 1
+
+
+# =========================================================
+# SORT
+# =========================================================
 
 dedup.sort(
-    key=lambda e: e.get("date") or "9999-12-31"
+    key=lambda e: (
+        e.get("date") or "9999-12-31",
+        e.get("title") or "",
+    )
 )
 
 
-# ---------------------------------------------------------
+# =========================================================
 # WRITE OUTPUT
-# ---------------------------------------------------------
+# =========================================================
 
 payload = {
-    "generated_at": datetime.utcnow().isoformat() + "Z",
+
+    "generated_at": today,
+
+    "comparison": {
+        "previous_event_count": len(
+            previous_events
+        ),
+        "current_event_count": len(
+            dedup
+        ),
+        "new_event_count": new_count,
+        "scrape_started": scrape_started,
+    },
+
     "events": dedup,
+
     "results": results,
 }
+
 
 # Automatically create data/ if it doesn't exist.
 OUT.parent.mkdir(
     parents=True,
     exist_ok=True,
 )
+
 
 OUT.write_text(
     json.dumps(
@@ -512,6 +683,19 @@ OUT.write_text(
     encoding="utf-8",
 )
 
+
+# =========================================================
+# SUMMARY
+# =========================================================
+
 print(
     f"Saved {len(dedup)} events."
+)
+
+print(
+    f"Previous events: {len(previous_events)}"
+)
+
+print(
+    f"New events detected: {new_count}"
 )

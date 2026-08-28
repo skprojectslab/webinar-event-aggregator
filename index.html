@@ -1,25 +1,572 @@
 <!doctype html>
-<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+
 <title>Webinar & Event Aggregator</title>
+
 <style>
-body{margin:0;background:#0f172a;color:#e2e8f0;font-family:Segoe UI,Arial,sans-serif}.wrap{max-width:1180px;margin:auto;padding:20px}
-header{background:#111827;border-bottom:1px solid #334155}.sub{color:#94a3b8;font-size:13px}.stats{display:flex;gap:10px;margin-top:15px;flex-wrap:wrap}.stat{background:#1e293b;border:1px solid #334155;padding:12px;border-radius:10px;min-width:140px}.label{font-size:11px;color:#94a3b8}.num{font-size:21px;font-weight:700}
-.controls{display:grid;grid-template-columns:2fr repeat(4,1fr);gap:9px;margin:18px 0}input,select{width:100%;padding:10px;border-radius:8px;border:1px solid #334155;background:#0b1220;color:#e2e8f0}
-.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:13px}.card{background:#1e293b;border:1px solid #334155;border-radius:12px;padding:15px}.title{font-weight:700;line-height:1.35}.meta{font-size:12px;color:#94a3b8;margin:8px 0}.badge{background:#38bdf8;color:#082f49;padding:2px 7px;border-radius:999px}.desc{font-size:13px;line-height:1.45;color:#cbd5e1}.links{display:flex;gap:7px;margin-top:12px}.link{color:#67e8f9;text-decoration:none;border:1px solid #334155;padding:7px 9px;border-radius:7px;font-size:13px}.empty{text-align:center;padding:45px;color:#94a3b8}.foot{color:#64748b;font-size:11px;margin-top:25px}
-@media(max-width:850px){.controls{grid-template-columns:1fr 1fr}.wide{grid-column:1/-1}}
-</style></head>
-<body><header><div class="wrap"><h1>Webinar & Event Aggregator</h1><div class="sub">Official first-party sources only • automatically refreshed by GitHub Actions</div>
-<div class="stats"><div class="stat"><div class="label">Events</div><div class="num" id="count">—</div></div><div class="stat"><div class="label">Sources</div><div class="num" id="sources">—</div></div><div class="stat"><div class="label">Upcoming this week</div><div class="num" id="week">—</div></div><div class="stat"><div class="label">Last updated</div><div class="num" id="updated">—</div></div></div></div></header>
-<main class="wrap"><div class="controls"><input class="wide" id="q" placeholder="Search events, AI, cloud, webinar..."><select id="source"><option value="">All sources</option></select><select id="category"><option value="">All categories</option><option>AI & Machine Learning</option><option>Cloud Computing</option><option>Cybersecurity</option><option>Digital Transformation</option><option>Technology</option></select><select id="type"><option value="">All types</option><option>webinar</option><option>conference</option><option>workshop</option><option>seminar</option><option>meetup</option></select><input type="date" id="from"></div>
-<div id="grid" class="grid"></div><div class="foot">Data is scraped from official source websites. Event links open the original publisher page.</div></main>
+body{
+  margin:0;
+  background:#0f172a;
+  color:#e2e8f0;
+  font-family:Segoe UI,Arial,sans-serif
+}
+
+.wrap{
+  max-width:1180px;
+  margin:auto;
+  padding:20px
+}
+
+header{
+  background:#111827;
+  border-bottom:1px solid #334155
+}
+
+.sub{
+  color:#94a3b8;
+  font-size:13px
+}
+
+.stats{
+  display:flex;
+  gap:10px;
+  margin-top:15px;
+  flex-wrap:wrap
+}
+
+.stat{
+  background:#1e293b;
+  border:1px solid #334155;
+  padding:12px;
+  border-radius:10px;
+  min-width:140px
+}
+
+.label{
+  font-size:11px;
+  color:#94a3b8
+}
+
+.num{
+  font-size:21px;
+  font-weight:700
+}
+
+.controls{
+  display:grid;
+  grid-template-columns:2fr repeat(4,1fr);
+  gap:9px;
+  margin:18px 0
+}
+
+input,select{
+  width:100%;
+  padding:10px;
+  border-radius:8px;
+  border:1px solid #334155;
+  background:#0b1220;
+  color:#e2e8f0
+}
+
+.grid{
+  display:grid;
+  grid-template-columns:repeat(auto-fill,minmax(290px,1fr));
+  gap:13px
+}
+
+.card{
+  background:#1e293b;
+  border:1px solid #334155;
+  border-radius:12px;
+  padding:15px
+}
+
+.title{
+  font-weight:700;
+  line-height:1.35
+}
+
+.meta{
+  font-size:12px;
+  color:#94a3b8;
+  margin:8px 0
+}
+
+.badge{
+  background:#38bdf8;
+  color:#082f49;
+  padding:2px 7px;
+  border-radius:999px
+}
+
+.desc{
+  font-size:13px;
+  line-height:1.45;
+  color:#cbd5e1
+}
+
+.links{
+  display:flex;
+  gap:7px;
+  margin-top:12px
+}
+
+.link{
+  color:#67e8f9;
+  text-decoration:none;
+  border:1px solid #334155;
+  padding:7px 9px;
+  border-radius:7px;
+  font-size:13px
+}
+
+.empty{
+  text-align:center;
+  padding:45px;
+  color:#94a3b8
+}
+
+.foot{
+  color:#64748b;
+  font-size:11px;
+  margin-top:25px
+}
+
+@media(max-width:850px){
+  .controls{
+    grid-template-columns:1fr 1fr
+  }
+
+  .wide{
+    grid-column:1/-1
+  }
+}
+</style>
+</head>
+
+<body>
+
+<header>
+<div class="wrap">
+
+<h1>Webinar & Event Aggregator</h1>
+
+<div class="sub">
+Official first-party sources only • automatically refreshed by GitHub Actions
+</div>
+
+<div class="stats">
+
+<div class="stat">
+<div class="label">Events</div>
+<div class="num" id="count">—</div>
+</div>
+
+<div class="stat">
+<div class="label">Sources</div>
+<div class="num" id="sources">—</div>
+</div>
+
+<div class="stat">
+<div class="label">Upcoming this week</div>
+<div class="num" id="week">—</div>
+</div>
+
+<div class="stat">
+<div class="label">Last updated</div>
+<div class="num" id="updated">—</div>
+</div>
+
+</div>
+</div>
+</header>
+
+
+<main class="wrap">
+
+<div class="controls">
+
+<input
+class="wide"
+id="q"
+placeholder="Search events, AI, cloud, webinar..."
+>
+
+<select id="source">
+<option value="">All sources</option>
+</select>
+
+<select id="category">
+<option value="">All categories</option>
+<option>AI & Machine Learning</option>
+<option>Cloud Computing</option>
+<option>Cybersecurity</option>
+<option>Digital Transformation</option>
+<option>Technology</option>
+</select>
+
+<select id="type">
+<option value="">All types</option>
+<option>webinar</option>
+<option>conference</option>
+<option>workshop</option>
+<option>seminar</option>
+<option>meetup</option>
+</select>
+
+<input type="date" id="from">
+
+</div>
+
+
+<div id="grid" class="grid"></div>
+
+<div class="foot">
+Data is scraped from official source websites. Event links open the original publisher page.
+</div>
+
+</main>
+
+
 <script>
-let data=[],filtered=[];
-const $=id=>document.getElementById(id);
-const esc=s=>String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
-const dt=v=>{if(!v)return"Date not found";let d=new Date(v);return isNaN(d)?"Date not found":d.toLocaleString(undefined,{weekday:"short",year:"numeric",month:"short",day:"numeric",hour:"2-digit",minute:"2-digit"})};
-function render(){let q=$("q").value.toLowerCase(),s=$("source").value,c=$("category").value,t=$("type").value,f=$("from").value;
-filtered=data.filter(e=>(!s||e.source_id===s)&&(!c||e.category===c)&&(!t||e.type===t)&&(!f||!e.date||e.date.slice(0,10)>=f)&&(!q||(`${e.title} ${e.description} ${e.source_name}`).toLowerCase().includes(q)));
-$("grid").innerHTML=filtered.length?filtered.map(e=>`<article class="card"><div class="title">${esc(e.title)}</div><div class="meta">${esc(dt(e.date))} • ${esc(e.type)} • <span class="badge">${esc(e.category)}</span><br>${esc(e.source_name)}</div><div class="desc">${esc(e.description||"")}</div><div class="links"><a class="link" href="${esc(e.event_url||e.source_url)}" target="_blank" rel="noopener">View event ↗</a>${e.registration_url&&e.registration_url!==e.event_url?`<a class="link" href="${esc(e.registration_url)}" target="_blank" rel="noopener">Register ↗</a>`:""}</div></article>`).join(""):`<div class="empty">No matching events.</div>`}
-fetch("data/events.json").then(r=>r.json()).then(p=>{data=p.events||[];$("count").textContent=data.length;$("sources").textContent=new Set(data.map(e=>e.source_id)).size;let now=new Date(),w=new Date(now);w.setDate(now.getDate()-(now.getDay()||7)+1);$("week").textContent=data.filter(e=>e.date&&new Date(e.date)>=w).length;$("updated").textContent=p.generated_at?new Date(p.generated_at).toLocaleString():"—";[...new Set(data.map(e=>[e.source_id,e.source_name]))].sort().forEach(([id,name])=>{let o=document.createElement("option");o.value=id;o.textContent=name;$("source").appendChild(o)});render()}).catch(()=>{$("grid").innerHTML='<div class="empty">Data file could not be loaded.</div>'});
-["q","source","category","type","from"].forEach(id=>$(id).addEventListener(id==="q"?"input":"change",render));
-</script></body></html>
+
+let data = [];
+let filtered = [];
+
+const $ = id => document.getElementById(id);
+
+const esc = s =>
+  String(s ?? "").replace(
+    /[&<>"']/g,
+    c => ({
+      "&":"&amp;",
+      "<":"&lt;",
+      ">":"&gt;",
+      '"':"&quot;",
+      "'":"&#39;"
+    }[c])
+  );
+
+
+const dt = v => {
+
+  if(!v) return "Date not found";
+
+  let d = new Date(v);
+
+  return isNaN(d)
+    ? "Date not found"
+    : d.toLocaleString(
+        undefined,
+        {
+          weekday:"short",
+          year:"numeric",
+          month:"short",
+          day:"numeric",
+          hour:"2-digit",
+          minute:"2-digit"
+        }
+      );
+};
+
+
+/* ---------------------------------------
+   RENDER EVENTS
+--------------------------------------- */
+
+function render(){
+
+  let q = $("q").value.toLowerCase();
+  let s = $("source").value;
+  let c = $("category").value;
+  let t = $("type").value;
+  let f = $("from").value;
+
+  filtered = data.filter(e =>
+
+    (!s || e.source_id === s) &&
+
+    (!c || e.category === c) &&
+
+    (!t || e.type === t) &&
+
+    (!f || !e.date || e.date.slice(0,10) >= f) &&
+
+    (
+      !q ||
+      (
+        `${e.title} ${e.description} ${e.source_name}`
+      )
+      .toLowerCase()
+      .includes(q)
+    )
+
+  );
+
+
+  $("grid").innerHTML = filtered.length
+
+    ? filtered.map(e => `
+
+      <article class="card">
+
+        <div class="title">
+          ${esc(e.title)}
+        </div>
+
+        <div class="meta">
+
+          ${esc(dt(e.date))}
+          •
+          ${esc(e.type)}
+          •
+
+          <span class="badge">
+            ${esc(e.category)}
+          </span>
+
+          <br>
+
+          ${esc(e.source_name)}
+
+        </div>
+
+
+        <div class="desc">
+          ${esc(e.description || "")}
+        </div>
+
+
+        <div class="links">
+
+          <a
+            class="link"
+            href="${esc(e.event_url || e.source_url)}"
+            target="_blank"
+            rel="noopener"
+          >
+            View event ↗
+          </a>
+
+
+          ${
+            e.registration_url &&
+            e.registration_url !== e.event_url
+
+            ? `
+              <a
+                class="link"
+                href="${esc(e.registration_url)}"
+                target="_blank"
+                rel="noopener"
+              >
+                Register ↗
+              </a>
+            `
+
+            : ""
+          }
+
+        </div>
+
+      </article>
+
+    `).join("")
+
+    : `<div class="empty">No matching events.</div>`;
+}
+
+
+/* ---------------------------------------
+   LOAD DATA
+--------------------------------------- */
+
+fetch("data/events.json")
+
+.then(r => r.json())
+
+.then(p => {
+
+  data = p.events || [];
+
+
+  /* ---------------------------------------
+     EVENT COUNT
+  --------------------------------------- */
+
+  $("count").textContent = data.length;
+
+
+  /* ---------------------------------------
+     UNIQUE SOURCE COUNT
+  --------------------------------------- */
+
+  const uniqueSourceIds = new Set(
+    data
+      .map(e => e.source_id)
+      .filter(Boolean)
+  );
+
+  $("sources").textContent = uniqueSourceIds.size;
+
+
+  /* ---------------------------------------
+     UPCOMING THIS WEEK
+  --------------------------------------- */
+
+  let now = new Date();
+
+  let w = new Date(now);
+
+  w.setDate(
+    now.getDate() -
+    (now.getDay() || 7) +
+    1
+  );
+
+  $("week").textContent =
+    data.filter(
+      e =>
+        e.date &&
+        new Date(e.date) >= w
+    ).length;
+
+
+  /* ---------------------------------------
+     LAST UPDATED
+  --------------------------------------- */
+
+  $("updated").textContent =
+    p.generated_at
+      ? new Date(p.generated_at).toLocaleString()
+      : "—";
+
+
+  /* ---------------------------------------
+     BUILD UNIQUE SOURCE LIST
+     
+     IMPORTANT:
+     One website = one dropdown entry.
+  --------------------------------------- */
+
+  const sourceMap = new Map();
+
+
+  data.forEach(e => {
+
+    const id = e.source_id;
+
+    if(!id) return;
+
+    if(!sourceMap.has(id)){
+
+      sourceMap.set(
+        id,
+        e.source_name || id
+      );
+
+    }
+
+  });
+
+
+  /* ---------------------------------------
+     CONVERT TO ARRAY
+  --------------------------------------- */
+
+  let sources = Array.from(
+    sourceMap.entries()
+  );
+
+
+  /* ---------------------------------------
+     TECHUK FIRST
+     
+     Everything else alphabetical.
+  --------------------------------------- */
+
+  sources.sort((a,b) => {
+
+    const aName = String(a[1]).toLowerCase();
+    const bName = String(b[1]).toLowerCase();
+
+    const aTech =
+      aName.includes("techuk") ||
+      String(a[0]).toLowerCase().includes("techuk");
+
+    const bTech =
+      bName.includes("techuk") ||
+      String(b[0]).toLowerCase().includes("techuk");
+
+
+    if(aTech && !bTech) return -1;
+
+    if(!aTech && bTech) return 1;
+
+    return aName.localeCompare(bName);
+
+  });
+
+
+  /* ---------------------------------------
+     POPULATE SOURCE FILTER
+  --------------------------------------- */
+
+  const sourceSelect = $("source");
+
+
+  sources.forEach(([id,name]) => {
+
+    const option =
+      document.createElement("option");
+
+    option.value = id;
+
+    option.textContent = name;
+
+    sourceSelect.appendChild(option);
+
+  });
+
+
+  /* ---------------------------------------
+     INITIAL RENDER
+  --------------------------------------- */
+
+  render();
+
+})
+
+
+.catch(() => {
+
+  $("grid").innerHTML =
+    '<div class="empty">Data file could not be loaded.</div>';
+
+});
+
+
+/* ---------------------------------------
+   FILTER EVENTS
+--------------------------------------- */
+
+["q","source","category","type","from"]
+
+.forEach(id => {
+
+  $(id).addEventListener(
+    id === "q"
+      ? "input"
+      : "change",
+    render
+  );
+
+});
+
+</script>
+
+</body>
+</html>

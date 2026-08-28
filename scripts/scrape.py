@@ -1,4 +1,4 @@
-import hashlib, json, re
+import hashlib, json, re, sys
 from datetime import datetime
 from urllib.parse import urljoin, urldefrag, urlparse
 from pathlib import Path

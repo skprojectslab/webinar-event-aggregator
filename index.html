@@ -225,6 +225,25 @@ select:focus{
   border-radius:999px;
 }
 
+.new-badge{
+  display:inline-block;
+  background:#22c55e;
+  color:#052e16;
+  padding:3px 8px;
+  border-radius:999px;
+  font-size:10px;
+  font-weight:800;
+  letter-spacing:.4px;
+  margin-left:7px;
+  vertical-align:middle;
+}
+
+.added-info{
+  margin-top:7px;
+  font-size:11px;
+  color:#86efac;
+}
+
 .desc{
   font-size:13px;
   line-height:1.45;
@@ -346,6 +365,11 @@ Official first-party sources only • automatically refreshed by GitHub Actions
 <div class="stat">
 <div class="label">Last updated</div>
 <div class="num" id="updated">—</div>
+</div>
+
+<div class="stat">
+<div class="label">Added this week</div>
+<div class="num" id="addedWeek">—</div>
 </div>
 
 </div>
@@ -492,6 +516,15 @@ meetup
 
 </div>
 
+<select id="newFilter" aria-label="Filter recently added events">
+<option value="">All additions</option>
+<option value="1">Added today</option>
+<option value="3">Added in last 3 days</option>
+<option value="7">Added in last 7 days</option>
+<option value="14">Added in last 14 days</option>
+<option value="30">Added in last 30 days</option>
+</select>
+
 
 </div>
 
@@ -580,6 +613,62 @@ const dt = v => {
 
 
 /* =====================================================
+   RECENT ADDITION HELPERS
+   ===================================================== */
+
+function parseFirstSeen(value){
+
+  if(!value)
+    return null;
+
+  const d = new Date(value);
+
+  return isNaN(d.getTime())
+    ? null
+    : d;
+
+}
+
+
+function isAddedWithinDays(event, days){
+
+  const firstSeen =
+    parseFirstSeen(event.first_seen);
+
+  if(!firstSeen)
+    return false;
+
+  const cutoff = new Date();
+
+  cutoff.setDate(
+    cutoff.getDate() - Number(days)
+  );
+
+  return firstSeen >= cutoff;
+
+}
+
+
+function isAddedToday(event){
+
+  const firstSeen =
+    parseFirstSeen(event.first_seen);
+
+  if(!firstSeen)
+    return false;
+
+  const now = new Date();
+
+  return (
+    firstSeen.getFullYear() === now.getFullYear() &&
+    firstSeen.getMonth() === now.getMonth() &&
+    firstSeen.getDate() === now.getDate()
+  );
+
+}
+
+
+/* =====================================================
    RENDER EVENTS
    ===================================================== */
 
@@ -595,6 +684,8 @@ function render(){
 
   let f = $("from").value;
 
+  let nf = $("newFilter").value;
+
 
   filtered = data.filter(e =>
 
@@ -608,6 +699,15 @@ function render(){
       !f ||
       !e.date ||
       e.date.slice(0,10) >= f
+    ) &&
+
+    (
+      !nf ||
+      (
+        nf === "1"
+          ? isAddedToday(e)
+          : isAddedWithinDays(e, nf)
+      )
     ) &&
 
     (
@@ -632,6 +732,11 @@ function render(){
 
         <div class="title">
           ${esc(e.title)}
+          ${
+            isAddedWithinDays(e, 7)
+              ? '<span class="new-badge">NEW</span>'
+              : ''
+          }
         </div>
 
 
@@ -651,6 +756,21 @@ function render(){
           <br>
 
           ${esc(e.source_name)}
+
+          ${
+            e.first_seen && isAddedWithinDays(e, 30)
+              ? `<div class="added-info">Added ${esc(
+                  new Date(e.first_seen).toLocaleDateString(
+                    undefined,
+                    {
+                      day:"numeric",
+                      month:"short",
+                      year:"numeric"
+                    }
+                  )
+                )}</div>`
+              : ""
+          }
 
         </div>
 
@@ -773,6 +893,26 @@ fetch("data/events.json")
         e.date &&
         new Date(e.date) >= w
 
+    ).length;
+
+
+  /* ===================================================
+     ADDED THIS WEEK
+     =================================================== */
+
+  $("addedWeek").textContent =
+    data.filter(
+      e => isAddedWithinDays(e, 7)
+    ).length;
+
+
+  /* ===================================================
+     ADDED THIS WEEK
+     =================================================== */
+
+  $("addedWeek").textContent =
+    data.filter(
+      e => isAddedWithinDays(e, 7)
     ).length;
 
 
@@ -940,7 +1080,7 @@ fetch("data/events.json")
    FILTER EVENTS
    ===================================================== */
 
-["q","source","category","type","from"]
+["q","source","category","type","from","newFilter"]
 
 .forEach(id => {
 

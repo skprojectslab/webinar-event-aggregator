@@ -130,14 +130,14 @@ with sync_playwright() as p:
             results.append({"source":s["name"],"success":True,"count":len(items)})
             print(f"[OK] {s['name']}: {len(items)}")
             page.close()
-        except Exception as ex:
-    results.append({
-        "source": s["name"],
-        "success": False,
-        "count": 0,
-        "error": repr(ex)
-    })
-    print(f"[FAIL] {s['name']}: {repr(ex)}")
+              except Exception as ex:
+            results.append({
+                "source": s["name"],
+                "success": False,
+                "count": 0,
+                "error": repr(ex)
+            })
+            print(f"[FAIL] {s['name']}: {repr(ex)}")
     browser.close()
 
 seen=set(); dedup=[]

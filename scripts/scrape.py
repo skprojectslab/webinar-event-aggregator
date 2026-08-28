@@ -116,21 +116,34 @@ all_events=[]
 results=[]
 with sync_playwright() as p:
     browser=p.chromium.launch(headless=True)
-    for s in SOURCES:
+        for s in SOURCES:
         try:
-            page=browser.new_page(user_agent=UA,viewport={"width":1440,"height":1000})
-            page.goto(s["url"],wait_until="domcontentloaded",timeout=60000)
-            page.wait_for_timeout(2500)
+            page = browser.new_page(
+                user_agent=UA,
+                viewport={"width": 1440, "height": 1000}
+            )
+            page.goto(s["url"], wait_until="domcontentloaded", timeout=60000)
+            page.wait_for_timeout(250)
+
             # Scroll once to trigger lazy-loaded event cards.
             page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
             page.wait_for_timeout(1500)
-            html=page.content(); final=page.url()
-            items=extract(html,final,s)
+
+            html = page.content()
+            final = page.url()
+
+            items = extract(html, final, s)
             all_events.extend(items)
-            results.append({"source":s["name"],"success":True,"count":len(items)})
+            results.append({
+                "source": s["name"],
+                "success": True,
+                "count": len(items)
+            })
+
             print(f"[OK] {s['name']}: {len(items)}")
             page.close()
-              except Exception as ex:
+
+        except Exception as ex:
             results.append({
                 "source": s["name"],
                 "success": False,
@@ -138,6 +151,7 @@ with sync_playwright() as p:
                 "error": repr(ex)
             })
             print(f"[FAIL] {s['name']}: {repr(ex)}")
+
     browser.close()
 
 seen=set(); dedup=[]

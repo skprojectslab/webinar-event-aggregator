@@ -131,8 +131,13 @@ with sync_playwright() as p:
             print(f"[OK] {s['name']}: {len(items)}")
             page.close()
         except Exception as ex:
-            results.append({"source":s["name"],"success":False,"count":0,"error":str(ex)})
-            print(f"[FAIL] {s['name']}: {ex}")
+    results.append({
+        "source": s["name"],
+        "success": False,
+        "count": 0,
+        "error": repr(ex)
+    })
+    print(f"[FAIL] {s['name']}: {repr(ex)}")
     browser.close()
 
 seen=set(); dedup=[]
@@ -141,5 +146,6 @@ for e in all_events:
     if k not in seen: seen.add(k); dedup.append(e)
 dedup.sort(key=lambda e:e.get("date") or "9999-12-31")
 payload={"generated_at":datetime.utcnow().isoformat()+"Z","events":dedup,"results":results}
+OUT.parent.mkdir(parents=True, exist_ok=True)
 OUT.write_text(json.dumps(payload,ensure_ascii=False,indent=2),encoding="utf-8")
 print(f"Saved {len(dedup)} events.")

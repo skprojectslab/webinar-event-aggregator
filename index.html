@@ -1,25 +1,48 @@
 <!doctype html>
 <html lang="en">
+
 <head>
+
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 
 <title>Webinar & Event Aggregator</title>
 
 <style>
-/* Date selector - dark theme */
+
+/* =====================================================
+   DATE SELECTOR
+   ===================================================== */
+
 input[type="date"] {
-    color: #e2e8f0 !important;
-    background-color: #0b1220 !important;
-    color-scheme: dark;
-    cursor: pointer;
+  color:#e2e8f0 !important;
+  background-color:#0b1220 !important;
+  color-scheme:dark;
+  cursor:pointer;
+
+  padding-right:42px !important;
+
+  /* Custom white calendar icon */
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='20' height='20' viewBox='0 0 24 24' fill='none' stroke='%23ffffff' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect x='3' y='4' width='18' height='18' rx='2'/%3E%3Cline x1='16' y1='2' x2='16' y2='6'/%3E%3Cline x1='8' y1='2' x2='8' y2='6'/%3E%3Cline x1='3' y1='10' x2='21' y2='10'/%3E%3C/svg%3E") !important;
+
+  background-repeat:no-repeat !important;
+  background-position:right 14px center !important;
+  background-size:20px 20px !important;
 }
 
+/* Hide browser native calendar icon */
 input[type="date"]::-webkit-calendar-picker-indicator {
-    opacity: 1 !important;
-    cursor: pointer;
-    filter: invert(1) brightness(1.2);
+  opacity:0 !important;
+  cursor:pointer;
+  width:32px;
+  height:32px;
 }
+
+
+/* =====================================================
+   MAIN PAGE
+   ===================================================== */
+
 body{
   margin:0;
   background:#0f172a;
@@ -27,21 +50,25 @@ body{
   font-family:Segoe UI,Arial,sans-serif
 }
 
+
 .wrap{
   max-width:1180px;
   margin:auto;
   padding:20px
 }
 
+
 header{
   background:#111827;
   border-bottom:1px solid #334155
 }
 
+
 .sub{
   color:#94a3b8;
   font-size:13px
 }
+
 
 .stats{
   display:flex;
@@ -49,6 +76,7 @@ header{
   margin-top:15px;
   flex-wrap:wrap
 }
+
 
 .stat{
   background:#1e293b;
@@ -58,15 +86,22 @@ header{
   min-width:140px
 }
 
+
 .label{
   font-size:11px;
   color:#94a3b8
 }
 
+
 .num{
   font-size:21px;
   font-weight:700
 }
+
+
+/* =====================================================
+   FILTERS
+   ===================================================== */
 
 .controls{
   display:grid;
@@ -74,6 +109,7 @@ header{
   gap:9px;
   margin:18px 0
 }
+
 
 input,select{
   width:100%;
@@ -84,11 +120,17 @@ input,select{
   color:#e2e8f0
 }
 
+
+/* =====================================================
+   EVENT GRID
+   ===================================================== */
+
 .grid{
   display:grid;
   grid-template-columns:repeat(auto-fill,minmax(290px,1fr));
   gap:13px
 }
+
 
 .card{
   background:#1e293b;
@@ -97,16 +139,19 @@ input,select{
   padding:15px
 }
 
+
 .title{
   font-weight:700;
   line-height:1.35
 }
+
 
 .meta{
   font-size:12px;
   color:#94a3b8;
   margin:8px 0
 }
+
 
 .badge{
   background:#38bdf8;
@@ -115,17 +160,20 @@ input,select{
   border-radius:999px
 }
 
+
 .desc{
   font-size:13px;
   line-height:1.45;
   color:#cbd5e1
 }
 
+
 .links{
   display:flex;
   gap:7px;
   margin-top:12px
 }
+
 
 .link{
   color:#67e8f9;
@@ -136,11 +184,13 @@ input,select{
   font-size:13px
 }
 
+
 .empty{
   text-align:center;
   padding:45px;
   color:#94a3b8
 }
+
 
 .foot{
   color:#64748b;
@@ -148,7 +198,13 @@ input,select{
   margin-top:25px
 }
 
+
+/* =====================================================
+   MOBILE
+   ===================================================== */
+
 @media(max-width:850px){
+
   .controls{
     grid-template-columns:1fr 1fr
   }
@@ -156,13 +212,19 @@ input,select{
   .wide{
     grid-column:1/-1
   }
+
 }
+
 </style>
+
 </head>
+
 
 <body>
 
+
 <header>
+
 <div class="wrap">
 
 <h1>Webinar & Event Aggregator</h1>
@@ -171,36 +233,75 @@ input,select{
 Official first-party sources only • automatically refreshed by GitHub Actions
 </div>
 
+
 <div class="stats">
 
-<div class="stat">
-<div class="label">Events</div>
-<div class="num" id="count">—</div>
-</div>
 
 <div class="stat">
-<div class="label">Sources</div>
-<div class="num" id="sources">—</div>
+
+<div class="label">
+Events
 </div>
 
-<div class="stat">
-<div class="label">Upcoming this week</div>
-<div class="num" id="week">—</div>
-</div>
-
-<div class="stat">
-<div class="label">Last updated</div>
-<div class="num" id="updated">—</div>
+<div class="num" id="count">
+—
 </div>
 
 </div>
+
+
+<div class="stat">
+
+<div class="label">
+Sources
 </div>
+
+<div class="num" id="sources">
+—
+</div>
+
+</div>
+
+
+<div class="stat">
+
+<div class="label">
+Upcoming this week
+</div>
+
+<div class="num" id="week">
+—
+</div>
+
+</div>
+
+
+<div class="stat">
+
+<div class="label">
+Last updated
+</div>
+
+<div class="num" id="updated">
+—
+</div>
+
+</div>
+
+
+</div>
+
+</div>
+
 </header>
+
 
 
 <main class="wrap">
 
+
 <div class="controls">
+
 
 <input
 class="wide"
@@ -208,48 +309,111 @@ id="q"
 placeholder="Search events, AI, cloud, webinar..."
 >
 
+
 <select id="source">
-<option value="">All sources</option>
+
+<option value="">
+All sources
+</option>
+
 </select>
+
 
 <select id="category">
-<option value="">All categories</option>
-<option>AI & Machine Learning</option>
-<option>Cloud Computing</option>
-<option>Cybersecurity</option>
-<option>Digital Transformation</option>
-<option>Technology</option>
+
+<option value="">
+All categories
+</option>
+
+<option>
+AI & Machine Learning
+</option>
+
+<option>
+Cloud Computing
+</option>
+
+<option>
+Cybersecurity
+</option>
+
+<option>
+Digital Transformation
+</option>
+
+<option>
+Technology
+</option>
+
 </select>
+
 
 <select id="type">
-<option value="">All types</option>
-<option>webinar</option>
-<option>conference</option>
-<option>workshop</option>
-<option>seminar</option>
-<option>meetup</option>
+
+<option value="">
+All types
+</option>
+
+<option>
+webinar
+</option>
+
+<option>
+conference
+</option>
+
+<option>
+workshop
+</option>
+
+<option>
+seminar
+</option>
+
+<option>
+meetup
+</option>
+
 </select>
 
-<input type="date" id="from">
+
+<input
+type="date"
+id="from"
+>
+
 
 </div>
+
 
 
 <div id="grid" class="grid"></div>
 
+
+
 <div class="foot">
-Data is scraped from official source websites. Event links open the original publisher page.
+
+Data is scraped from official source websites.
+Event links open the original publisher page.
+
 </div>
+
 
 </main>
 
 
+
 <script>
 
+
 let data = [];
+
 let filtered = [];
 
-const $ = id => document.getElementById(id);
+
+const $ = id =>
+  document.getElementById(id);
+
 
 const esc = s =>
   String(s ?? "").replace(
@@ -264,9 +428,11 @@ const esc = s =>
   );
 
 
+
 const dt = v => {
 
-  if(!v) return "Date not found";
+  if(!v)
+    return "Date not found";
 
   let d = new Date(v);
 
@@ -283,20 +449,27 @@ const dt = v => {
           minute:"2-digit"
         }
       );
+
 };
 
 
-/* ---------------------------------------
+
+/* =====================================================
    RENDER EVENTS
---------------------------------------- */
+   ===================================================== */
 
 function render(){
 
   let q = $("q").value.toLowerCase();
+
   let s = $("source").value;
+
   let c = $("category").value;
+
   let t = $("type").value;
+
   let f = $("from").value;
+
 
   filtered = data.filter(e =>
 
@@ -330,11 +503,15 @@ function render(){
           ${esc(e.title)}
         </div>
 
+
         <div class="meta">
 
           ${esc(dt(e.date))}
+
           •
+
           ${esc(e.type)}
+
           •
 
           <span class="badge">
@@ -355,6 +532,7 @@ function render(){
 
         <div class="links">
 
+
           <a
             class="link"
             href="${esc(e.event_url || e.source_url)}"
@@ -368,8 +546,8 @@ function render(){
           ${
             e.registration_url &&
             e.registration_url !== e.event_url
-
             ? `
+
               <a
                 class="link"
                 href="${esc(e.registration_url)}"
@@ -378,107 +556,141 @@ function render(){
               >
                 Register ↗
               </a>
+
             `
 
             : ""
           }
 
+
         </div>
+
 
       </article>
 
     `).join("")
 
     : `<div class="empty">No matching events.</div>`;
+
 }
 
 
-/* ---------------------------------------
+
+/* =====================================================
    LOAD DATA
---------------------------------------- */
+   ===================================================== */
 
 fetch("data/events.json")
 
+
 .then(r => r.json())
 
+
 .then(p => {
+
 
   data = p.events || [];
 
 
-  /* ---------------------------------------
+  /* ===================================================
      EVENT COUNT
-  --------------------------------------- */
+     =================================================== */
 
   $("count").textContent = data.length;
 
 
-  /* ---------------------------------------
+
+  /* ===================================================
      UNIQUE SOURCE COUNT
-  --------------------------------------- */
+     =================================================== */
 
   const uniqueSourceIds = new Set(
+
     data
       .map(e => e.source_id)
       .filter(Boolean)
+
   );
 
-  $("sources").textContent = uniqueSourceIds.size;
+
+  $("sources").textContent =
+    uniqueSourceIds.size;
 
 
-  /* ---------------------------------------
+
+  /* ===================================================
      UPCOMING THIS WEEK
-  --------------------------------------- */
+     =================================================== */
 
   let now = new Date();
 
   let w = new Date(now);
 
+
   w.setDate(
+
     now.getDate() -
     (now.getDay() || 7) +
     1
+
   );
 
+
   $("week").textContent =
+
     data.filter(
+
       e =>
         e.date &&
         new Date(e.date) >= w
+
     ).length;
 
 
-  /* ---------------------------------------
+
+  /* ===================================================
      LAST UPDATED
-  --------------------------------------- */
+     =================================================== */
 
   $("updated").textContent =
+
     p.generated_at
-      ? new Date(p.generated_at).toLocaleString()
+
+      ? new Date(
+          p.generated_at
+        ).toLocaleString()
+
       : "—";
 
 
-  /* ---------------------------------------
+
+  /* ===================================================
      BUILD UNIQUE SOURCE LIST
-     
+
      IMPORTANT:
      One website = one dropdown entry.
-  --------------------------------------- */
+     =================================================== */
 
   const sourceMap = new Map();
+
 
 
   data.forEach(e => {
 
     const id = e.source_id;
 
-    if(!id) return;
+    if(!id)
+      return;
+
 
     if(!sourceMap.has(id)){
 
       sourceMap.set(
+
         id,
+
         e.source_name || id
+
       );
 
     }
@@ -486,70 +698,111 @@ fetch("data/events.json")
   });
 
 
-  /* ---------------------------------------
+
+  /* ===================================================
      CONVERT TO ARRAY
-  --------------------------------------- */
+     =================================================== */
 
   let sources = Array.from(
+
     sourceMap.entries()
+
   );
 
 
-  /* ---------------------------------------
+
+  /* ===================================================
      TECHUK FIRST
-     
+
      Everything else alphabetical.
-  --------------------------------------- */
+     =================================================== */
 
   sources.sort((a,b) => {
 
-    const aName = String(a[1]).toLowerCase();
-    const bName = String(b[1]).toLowerCase();
+
+    const aName =
+      String(a[1]).toLowerCase();
+
+
+    const bName =
+      String(b[1]).toLowerCase();
+
 
     const aTech =
+
       aName.includes("techuk") ||
-      String(a[0]).toLowerCase().includes("techuk");
+
+      String(a[0])
+        .toLowerCase()
+        .includes("techuk");
+
 
     const bTech =
+
       bName.includes("techuk") ||
-      String(b[0]).toLowerCase().includes("techuk");
+
+      String(b[0])
+        .toLowerCase()
+        .includes("techuk");
 
 
-    if(aTech && !bTech) return -1;
+    if(aTech && !bTech)
+      return -1;
 
-    if(!aTech && bTech) return 1;
 
-    return aName.localeCompare(bName);
+    if(!aTech && bTech)
+      return 1;
+
+
+    return aName.localeCompare(
+      bName
+    );
 
   });
 
 
-  /* ---------------------------------------
+
+  /* ===================================================
      POPULATE SOURCE FILTER
-  --------------------------------------- */
+     =================================================== */
 
-  const sourceSelect = $("source");
-
-
-  sources.forEach(([id,name]) => {
-
-    const option =
-      document.createElement("option");
-
-    option.value = id;
-
-    option.textContent = name;
-
-    sourceSelect.appendChild(option);
-
-  });
+  const sourceSelect =
+    $("source");
 
 
-  /* ---------------------------------------
+  sources.forEach(
+    ([id,name]) => {
+
+
+      const option =
+        document.createElement(
+          "option"
+        );
+
+
+      option.value = id;
+
+
+      option.textContent =
+        name;
+
+
+      sourceSelect.appendChild(
+        option
+      );
+
+
+    }
+  );
+
+
+
+  /* ===================================================
      INITIAL RENDER
-  --------------------------------------- */
+     =================================================== */
 
   render();
+
 
 })
 
@@ -562,24 +815,31 @@ fetch("data/events.json")
 });
 
 
-/* ---------------------------------------
+
+/* =====================================================
    FILTER EVENTS
---------------------------------------- */
+   ===================================================== */
 
 ["q","source","category","type","from"]
 
 .forEach(id => {
 
   $(id).addEventListener(
+
     id === "q"
       ? "input"
       : "change",
+
     render
+
   );
 
 });
 
+
 </script>
 
+
 </body>
+
 </html>

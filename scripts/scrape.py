@@ -240,7 +240,7 @@ def normalize_title(value):
     return re.sub(r"\s+", " ", text).strip()
 
 
-def match_previous_event(event, previous_events):
+def match_previous_event(event, previous_events, excluded_ids=None):
     """
     Match a freshly scraped event to an older record.
 
@@ -253,8 +253,10 @@ def match_previous_event(event, previous_events):
          unrelated events look identical.
     """
 
+    excluded_ids = excluded_ids or set()
+
     event_id = event.get("id")
-    if event_id in previous_events:
+    if event_id in previous_events and event_id not in excluded_ids:
         return previous_events[event_id]
 
     source_id = clean(event.get("source_id")).lower()
@@ -264,6 +266,7 @@ def match_previous_event(event, previous_events):
     candidates = [
         old for old in previous_events.values()
         if clean(old.get("source_id")).lower() == source_id
+        and old.get("id") not in excluded_ids
     ]
 
     # Strongest content-based match: same source, title and date.
@@ -740,7 +743,7 @@ matched_previous_ids = set()
 
 for e in dedup:
 
-    old = match_previous_event(e, previous_events)
+    old = match_previous_event(e, previous_events, matched_previous_ids)
 
     if old:
 
@@ -760,7 +763,10 @@ for e in dedup:
         )
 
         # Same event, even if its URL/title/date was updated.
-        e["is_new"] = False
+        # Preserve the historical "genuinely discovered as new" flag.
+        # Once an event has been verified as a real addition, later scrapes
+        # must not erase that history.
+        e["is_new"] = bool(old.get("is_new", False))
         e["active"] = True
 
     else:

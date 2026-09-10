@@ -311,10 +311,31 @@ def extract(html, final_url, source):
 
     soup = BeautifulSoup(html, "lxml")
 
-    cards = soup.select(
-        "article, .event-item, .event, .event-card, "
-        "[class*='event-card'], li"
-    )
+    if s["id"] == "techuk":
+        # techUK's events page contains many generic navigation/footer list
+        # items. Only inspect event cards plus links under the events path.
+        cards = soup.select(
+            "article, .event-item, .event, .event-card, "
+            "[class*='event-card']"
+        )
+        event_links = soup.select(
+            "a[href*='/what-we-deliver/events/']"
+        )
+        existing_hrefs = {
+            a.get("href")
+            for card in cards
+            for a in card.select("a[href*='/what-we-deliver/events/']")
+        }
+        for a in event_links:
+            href = a.get("href")
+            if href and href not in existing_hrefs:
+                cards.append(a)
+                existing_hrefs.add(href)
+    else:
+        cards = soup.select(
+            "article, .event-item, .event, .event-card, "
+            "[class*='event-card'], li"
+        )
 
     out = []
 
@@ -374,6 +395,9 @@ def extract(html, final_url, source):
             )
 
             if not u:
+                continue
+
+            if s["id"] == "techuk" and "/what-we-deliver/events/" not in u:
                 continue
 
             if not event_url and eventish(u, txt):

@@ -244,6 +244,12 @@ select:focus{
   color:#86efac;
 }
 
+.archive-info{
+  margin-top:5px;
+  font-size:11px;
+  color:#94a3b8;
+}
+
 .desc{
   font-size:13px;
   line-height:1.45;
@@ -516,7 +522,7 @@ meetup
 
 </div>
 
-<select id="newFilter" aria-label="Filter recently added events">
+<select id="newFilter" aria-label="Filter recently added events" title="Filter by when an event was first discovered">
 <option value="">All additions</option>
 <option value="1">Added today</option>
 <option value="3">Added in last 3 days</option>
@@ -630,6 +636,17 @@ function parseFirstSeen(value){
 }
 
 
+function startOfLocalDay(date){
+
+  return new Date(
+    date.getFullYear(),
+    date.getMonth(),
+    date.getDate()
+  );
+
+}
+
+
 function isAddedWithinDays(event, days){
 
   const firstSeen =
@@ -638,13 +655,33 @@ function isAddedWithinDays(event, days){
   if(!firstSeen)
     return false;
 
-  const cutoff = new Date();
+  const now = new Date();
 
+  const todayStart =
+    startOfLocalDay(now);
+
+  const cutoff =
+    new Date(todayStart);
+
+  /*
+     "Last 3 days" means today plus the
+     previous 2 calendar days.
+
+     "Last 7 days" means today plus the
+     previous 6 calendar days, etc.
+  */
   cutoff.setDate(
-    cutoff.getDate() - Number(days)
+    cutoff.getDate() - (Number(days) - 1)
   );
 
-  return firstSeen >= cutoff;
+  return (
+    firstSeen >= cutoff &&
+    firstSeen < new Date(
+      todayStart.getFullYear(),
+      todayStart.getMonth(),
+      todayStart.getDate() + 1
+    )
+  );
 
 }
 
@@ -687,7 +724,20 @@ function render(){
   let nf = $("newFilter").value;
 
 
+  /*
+     Normal view:
+       show only events currently found on their sources.
+
+     Added view:
+       search the persistent discovery history, including
+       events that have since disappeared from the source.
+  */
+  const useHistory =
+    Boolean(nf);
+
   filtered = data.filter(e =>
+
+    (useHistory || e.active !== false) &&
 
     (!s || e.source_id === s) &&
 
@@ -769,6 +819,12 @@ function render(){
                     }
                   )
                 )}</div>`
+              : ""
+          }
+
+          ${
+            useHistory && e.active === false
+              ? '<div class="archive-info">Previously listed by source</div>'
               : ""
           }
 
@@ -896,17 +952,7 @@ fetch("data/events.json")
     ).length;
 
 
-  /* ===================================================
-     ADDED THIS WEEK
-     =================================================== */
-
-  $("addedWeek").textContent =
-    data.filter(
-      e => isAddedWithinDays(e, 7)
-    ).length;
-
-
-  /* ===================================================
+    /* ===================================================
      ADDED THIS WEEK
      =================================================== */
 

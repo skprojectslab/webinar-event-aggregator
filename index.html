@@ -647,7 +647,21 @@ function startOfLocalDay(date){
 }
 
 
+function isGenuineAddition(event){
+
+  // Only events explicitly identified by the scraper as genuinely new
+  // are eligible for the Added filters/badge. This prevents events that
+  // were discovered late because of an incomplete scrape from appearing
+  // as newly added.
+  return event.is_new === true;
+
+}
+
+
 function isAddedWithinDays(event, days){
+
+  if(!isGenuineAddition(event))
+    return false;
 
   const firstSeen =
     parseFirstSeen(event.first_seen);
@@ -663,13 +677,6 @@ function isAddedWithinDays(event, days){
   const cutoff =
     new Date(todayStart);
 
-  /*
-     "Last 3 days" means today plus the
-     previous 2 calendar days.
-
-     "Last 7 days" means today plus the
-     previous 6 calendar days, etc.
-  */
   cutoff.setDate(
     cutoff.getDate() - (Number(days) - 1)
   );
@@ -687,6 +694,9 @@ function isAddedWithinDays(event, days){
 
 
 function isAddedToday(event){
+
+  if(!isGenuineAddition(event))
+    return false;
 
   const firstSeen =
     parseFirstSeen(event.first_seen);

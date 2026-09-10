@@ -485,6 +485,12 @@ if OUT.exists():
 all_events = []
 results = []
 
+# Track which sources completed successfully.
+# We only mark missing events inactive for a source when that
+# source was successfully scraped. A failed source must not
+# accidentally make its historical events disappear.
+successful_source_ids = set()
+
 scrape_started = now_utc()
 
 
@@ -535,8 +541,11 @@ with sync_playwright() as p:
 
             all_events.extend(items)
 
+            successful_source_ids.add(s["id"])
+
             results.append(
                 {
+                    "source_id": s["id"],
                     "source": s["name"],
                     "success": True,
                     "count": len(items),
@@ -551,6 +560,7 @@ with sync_playwright() as p:
 
             results.append(
                 {
+                    "source_id": s["id"],
                     "source": s["name"],
                     "success": False,
                     "count": 0,
@@ -617,8 +627,9 @@ for e in dedup:
             ),
         )
 
-        # This event existed before.
+        # This event was found again on its source.
         e["is_new"] = False
+        e["active"] = True
 
     else:
 
@@ -626,15 +637,64 @@ for e in dedup:
         e["first_seen"] = today
 
         e["is_new"] = True
+        e["active"] = True
 
         new_count += 1
+
+
+# =========================================================
+# RETAIN HISTORICAL EVENTS
+# =========================================================
+#
+# The old implementation replaced the database with only the
+# events returned by today's scrape. That meant an event that
+# was discovered yesterday could disappear today if the source
+# stopped displaying it.
+#
+# We now retain those historical records. If their source was
+# successfully scraped today but the event was not returned,
+# mark it inactive. If the source failed, leave its previous
+# active state unchanged so a temporary scrape failure cannot
+# hide data.
+# =========================================================
+
+merged_events = list(dedup)
+
+for old_id, old in previous_events.items():
+
+    if old_id in seen:
+        continue
+
+    historical = dict(old)
+
+    historical["first_seen"] = historical.get(
+        "first_seen",
+        historical.get(
+            "scraped_at",
+            scrape_started,
+        ),
+    )
+
+    historical["is_new"] = False
+
+    source_id = historical.get("source_id")
+
+    if source_id in successful_source_ids:
+        historical["active"] = False
+    else:
+        historical["active"] = historical.get(
+            "active",
+            True,
+        )
+
+    merged_events.append(historical)
 
 
 # =========================================================
 # SORT
 # =========================================================
 
-dedup.sort(
+merged_events.sort(
     key=lambda e: (
         e.get("date") or "9999-12-31",
         e.get("title") or "",
@@ -654,14 +714,25 @@ payload = {
         "previous_event_count": len(
             previous_events
         ),
+        # Current event count = events found in this scrape.
+        # Historical inactive records are retained separately
+        # inside the events array.
         "current_event_count": len(
             dedup
+        ),
+        "historical_event_count": len(
+            merged_events
+        ),
+        "inactive_event_count": sum(
+            1
+            for e in merged_events
+            if e.get("active") is False
         ),
         "new_event_count": new_count,
         "scrape_started": scrape_started,
     },
 
-    "events": dedup,
+    "events": merged_events,
 
     "results": results,
 }
@@ -689,7 +760,8 @@ OUT.write_text(
 # =========================================================
 
 print(
-    f"Saved {len(dedup)} events."
+    f"Saved {len(merged_events)} historical events "
+    f"({len(dedup)} currently active)."
 )
 
 print(

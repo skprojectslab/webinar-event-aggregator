@@ -2,6 +2,7 @@ import hashlib
 import json
 import re
 import sys
+from difflib import SequenceMatcher
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import urljoin, urldefrag, urlparse
@@ -208,13 +209,13 @@ def eventish(url, text):
 
 def stable_event_id(e):
     """
-    Create an ID that does NOT change every time the scraper runs.
+    Create an ID that remains stable for the same source event.
 
     Primary identity:
-        source + event URL
+        source + canonical event URL
 
     Fallback:
-        source + title + date
+        source + normalized title + date
     """
 
     source_id = clean(e.get("source_id")).lower()
@@ -223,13 +224,83 @@ def stable_event_id(e):
     if event_url:
         identity = f"{source_id}|{event_url}"
     else:
-        title = clean(e.get("title")).lower()
+        title = normalize_title(e.get("title"))
         date = clean(e.get("date"))[:10]
         identity = f"{source_id}|{title}|{date}"
 
     return hashlib.sha1(
         identity.encode("utf-8")
     ).hexdigest()
+
+
+def normalize_title(value):
+    """Normalize an event title for cross-run comparison."""
+    text = clean(value).lower()
+    text = re.sub(r"[^a-z0-9]+", " ", text)
+    return re.sub(r"\s+", " ", text).strip()
+
+
+def match_previous_event(event, previous_events):
+    """
+    Match a freshly scraped event to an older record.
+
+    Matching priority:
+      1. Exact stable ID (normally source + URL).
+      2. Same source + normalized title + same date.
+      3. Same source + exact normalized title when unique.
+      4. Very-high title similarity for the same source when the old
+         title is unique. This catches minor title edits without making
+         unrelated events look identical.
+    """
+
+    event_id = event.get("id")
+    if event_id in previous_events:
+        return previous_events[event_id]
+
+    source_id = clean(event.get("source_id")).lower()
+    title = normalize_title(event.get("title"))
+    date = clean(event.get("date"))[:10]
+
+    candidates = [
+        old for old in previous_events.values()
+        if clean(old.get("source_id")).lower() == source_id
+    ]
+
+    # Strongest content-based match: same source, title and date.
+    exact = [
+        old for old in candidates
+        if normalize_title(old.get("title")) == title
+        and clean(old.get("date"))[:10] == date
+        and date
+    ]
+    if len(exact) == 1:
+        return exact[0]
+
+    # If the title is unchanged but the date moved, treat it as the same
+    # event. This is important for postponed/rescheduled techUK events.
+    same_title = [
+        old for old in candidates
+        if normalize_title(old.get("title")) == title
+    ]
+    if len(same_title) == 1:
+        return same_title[0]
+
+    # Conservative fuzzy fallback for small title edits.
+    if title:
+        scored = []
+        for old in candidates:
+            old_title = normalize_title(old.get("title"))
+            if not old_title:
+                continue
+            score = SequenceMatcher(None, title, old_title).ratio()
+            scored.append((score, old))
+
+        scored.sort(key=lambda x: x[0], reverse=True)
+        if scored and scored[0][0] >= 0.94:
+            if len(scored) == 1 or scored[0][0] - scored[1][0] >= 0.03:
+                return scored[0][1]
+
+    return None
 
 
 # =========================================================
@@ -520,14 +591,45 @@ with sync_playwright() as p:
                 timeout=60000,
             )
 
-            page.wait_for_timeout(250)
+            # techUK loads only the first batch of events initially and
+            # exposes the remaining events behind a "Show more events"
+            # control.  We must expand that list before extracting data;
+            # otherwise an event can be missed today and incorrectly look
+            # like a brand-new event tomorrow.
+            if s["id"] == "techuk":
+                page.wait_for_timeout(2000)
 
-            # Scroll once to trigger lazy-loaded event cards.
-            page.evaluate(
-                "window.scrollTo(0, document.body.scrollHeight)"
-            )
+                for _ in range(30):
+                    try:
+                        more = page.get_by_text(
+                            "Show more events",
+                            exact=True,
+                        )
 
-            page.wait_for_timeout(1500)
+                        if more.count() == 0:
+                            break
+
+                        target = more.last
+
+                        if not target.is_visible():
+                            break
+
+                        target.scroll_into_view_if_needed()
+                        target.click(timeout=5000)
+                        page.wait_for_timeout(800)
+
+                    except Exception:
+                        break
+
+            else:
+                page.wait_for_timeout(250)
+
+                # Scroll once to trigger lazy-loaded event cards.
+                page.evaluate(
+                    "window.scrollTo(0, document.body.scrollHeight)"
+                )
+
+                page.wait_for_timeout(1500)
 
             html = page.content()
 
@@ -610,13 +712,19 @@ new_count = 0
 today = now_utc()
 
 
+matched_previous_ids = set()
+
 for e in dedup:
 
-    event_id = e["id"]
+    old = match_previous_event(e, previous_events)
 
-    if event_id in previous_events:
+    if old:
 
-        old = previous_events[event_id]
+        old_id = old.get("id")
+        if old_id:
+            matched_previous_ids.add(old_id)
+            # Keep the historical ID even if the source changed its URL.
+            e["id"] = old_id
 
         # Preserve original first-seen date.
         e["first_seen"] = old.get(
@@ -627,15 +735,14 @@ for e in dedup:
             ),
         )
 
-        # This event was found again on its source.
+        # Same event, even if its URL/title/date was updated.
         e["is_new"] = False
         e["active"] = True
 
     else:
 
-        # Genuinely new event.
+        # No matching record from the previous dataset.
         e["first_seen"] = today
-
         e["is_new"] = True
         e["active"] = True
 
@@ -662,7 +769,7 @@ merged_events = list(dedup)
 
 for old_id, old in previous_events.items():
 
-    if old_id in seen:
+    if old_id in matched_previous_ids:
         continue
 
     historical = dict(old)

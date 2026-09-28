@@ -5,7 +5,9 @@ SOURCES = [
     {"id":"microsoft","name":"Microsoft Events","url":"https://www.microsoft.com/en-in/events","category":"Technology","type":"webinar"},
     {"id":"nasscom","name":"NASSCOM","url":"https://community.nasscom.in/","category":"Technology","type":"conference"},
     {"id":"google-cloud","name":"Google Cloud Events","url":"https://cloud.google.com/events","category":"Cloud Computing","type":"webinar"},
-    {"id":"ibm","name":"IBM Events","url":"https://www.ibm.com/events","category":"Technology","type":"webinar"},
+    {"id":"ibm","name":"IBM Events","url":"https://www.ibm.com/events","category":"Technology","type":"conference"},
     {"id":"ibm-research","name":"IBM Research Events","url":"https://research.ibm.com/events","category":"AI & Machine Learning","type":"conference"},
     {"id":"techmarketview","name":"TechMarketView (TMV)","url":"https://www.techmarketview.com/programmes-and-events/events/","category":"Technology","type":"conference"},
+    {"id":"wig","name":"WIG Strategic Dialogue","url":"https://www.wig.co.uk/strategic-dialogue/","category":"Government & Public Policy","type":"event"},
+    {"id":"mca","name":"MCA Events","url":"https://www.mca.org.uk/mca-events","category":"Consulting & Professional Services","type":"event"},
 ]

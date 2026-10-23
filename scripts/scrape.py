@@ -838,6 +838,9 @@ with sync_playwright() as p:
                     )
                     ticket_page.wait_for_timeout(2500)
                     ticket_html = ticket_page.content()
+                    print("[techUK DEBUG] Ticket HTML length:", len(ticket_html))
+                    print("[techUK DEBUG] Ticket HTML sample:")
+                    print(ticket_html[:5000])
                     ticket_final_url = ticket_page.url
 
                     ticket_items = extract(ticket_html, ticket_final_url, s)

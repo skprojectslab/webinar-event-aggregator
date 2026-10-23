@@ -850,40 +850,144 @@ with sync_playwright() as p:
                     )
 
                     # Fallback for ticket-platform markup that the generic
-                    # extractor doesn't recognize: use individual detail links.
+                    # extractor doesn't recognize. Start from visible headings
+                    # (the indexed ticket page renders event titles as h2/h3),
+                    # inspect their nearby card/container, then locate a likely
+                    # event-detail link without assuming a specific URL path.
                     if not ticket_items:
                         ticket_soup = BeautifulSoup(ticket_html, "lxml")
-                        seen_ticket_urls = set()
-                        for a in ticket_soup.select("a[href]"):
-                            href = abs_url(a.get("href"), ticket_final_url)
-                            title = clean(a.get_text(" ", strip=True))
-                            if not href or not title or len(title) < 12:
-                                continue
-                            parsed = urlparse(href)
-                            if parsed.netloc.lower() not in (
-                                "tickets.techuk.org",
-                                "www.tickets.techuk.org",
+                        seen_ticket_keys = set()
+                        heading_nodes = ticket_soup.select(
+                            "h1, h2, h3, h4, "
+                            "[class*='event-title'], [class*='event-name']"
+                        )
+
+                        ignored_titles = {
+                            "buy tickets", "event details", "select tickets",
+                            "sold out", "unavailable", "the uk's technology trade association",
+                        }
+
+                        for heading in heading_nodes:
+                            title = clean(heading.get_text(" ", strip=True))
+                            title_key = normalize_title(title)
+                            if (
+                                not title
+                                or len(title) < 12
+                                or len(title) > 220
+                                or title_key in ignored_titles
+                                or title_key in seen_ticket_keys
                             ):
                                 continue
-                            if not parsed.path.startswith("/events/"):
+
+                            # Look up a compact event card around the title.
+                            card = heading
+                            for _ in range(5):
+                                if not card.parent:
+                                    break
+                                card = card.parent
+                                card_text = clean(card.get_text(" ", strip=True))
+                                card_links = card.select("a[href]")
+                                if (
+                                    len(card_text) >= len(title)
+                                    and len(card_text) <= 1800
+                                    and card_links
+                                ):
+                                    # Prefer a detail link; avoid broad list,
+                                    # login, checkout, and ticket-selection URLs.
+                                    usable_links = []
+                                    for anchor in card_links:
+                                        href = abs_url(
+                                            anchor.get("href"), ticket_final_url
+                                        )
+                                        if not href:
+                                            continue
+                                        parsed = urlparse(href)
+                                        path_lower = parsed.path.lower().rstrip("/")
+                                        anchor_text = clean(
+                                            anchor.get_text(" ", strip=True)
+                                        ).lower()
+                                        if re.search(
+                                            r"login|register|checkout|basket|"
+                                            r"select-ticket|ticket-selection|"
+                                            r"privacy|terms|contact|about",
+                                            path_lower,
+                                            re.I,
+                                        ):
+                                            continue
+                                        if anchor_text in {
+                                            "event details", "select tickets",
+                                            "buy tickets", "sold out", "unavailable",
+                                        }:
+                                            usable_links.append(href)
+                                            continue
+                                        if (
+                                            parsed.netloc.lower()
+                                            in {
+                                                "tickets.techuk.org",
+                                                "www.tickets.techuk.org",
+                                            }
+                                            and path_lower
+                                            not in {
+                                                "/events",
+                                                "/events/techukuat",
+                                            }
+                                        ):
+                                            usable_links.append(href)
+
+                                    if usable_links:
+                                        break
+
+                            if not card_links:
                                 continue
-                            if parsed.path.rstrip("/") == "/events/techukuat":
+
+                            # Prefer the event-details link if present; otherwise
+                            # use the first non-listing link associated with card.
+                            event_url = None
+                            for anchor in card_links:
+                                href = abs_url(anchor.get("href"), ticket_final_url)
+                                anchor_text = clean(
+                                    anchor.get_text(" ", strip=True)
+                                ).lower()
+                                if not href:
+                                    continue
+                                parsed = urlparse(href)
+                                path_lower = parsed.path.lower().rstrip("/")
+                                if (
+                                    anchor_text == "event details"
+                                    and path_lower not in {
+                                        "/events",
+                                        "/events/techukuat",
+                                    }
+                                ):
+                                    event_url = href
+                                    break
+
+                            if not event_url:
+                                for anchor in card_links:
+                                    href = abs_url(anchor.get("href"), ticket_final_url)
+                                    if not href:
+                                        continue
+                                    parsed = urlparse(href)
+                                    if (
+                                        parsed.netloc.lower()
+                                        in {
+                                            "tickets.techuk.org",
+                                            "www.tickets.techuk.org",
+                                        }
+                                        and parsed.path.lower().rstrip("/")
+                                        not in {
+                                            "/events",
+                                            "/events/techukuat",
+                                        }
+                                    ):
+                                        event_url = href
+                                        break
+
+                            if not event_url:
                                 continue
-                            if href in seen_ticket_urls:
-                                continue
-                            if re.search(
-                                r"^(event details|select tickets|buy tickets|"
-                                r"join the member waiting list|sold out|unavailable)$",
-                                title,
-                                re.I,
-                            ):
-                                continue
-                            seen_ticket_urls.add(href)
-                            parent = a
-                            for _ in range(3):
-                                if parent.parent:
-                                    parent = parent.parent
-                            card_text = clean(parent.get_text(" ", strip=True))
+
+                            seen_ticket_keys.add(title_key)
+                            card_text = clean(card.get_text(" ", strip=True))
                             combined = f"{title} {card_text}"
                             event = {
                                 "source_id": s["id"],
@@ -892,7 +996,7 @@ with sync_playwright() as p:
                                 "description": card_text[:800],
                                 "date": parse_date(combined),
                                 "type": event_type(
-                                    f"{title} {href}", s["type"]
+                                    f"{title} {event_url}", s["type"]
                                 ),
                                 "category": category(combined, s["category"]),
                                 "location": (
@@ -904,8 +1008,8 @@ with sync_playwright() as p:
                                     )
                                     else ""
                                 ),
-                                "event_url": href,
-                                "registration_url": href,
+                                "event_url": event_url,
+                                "registration_url": event_url,
                                 "source_url": ticket_final_url,
                                 "scraped_at": now_utc(),
                             }

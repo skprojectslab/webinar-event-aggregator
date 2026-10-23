@@ -822,247 +822,142 @@ with sync_playwright() as p:
                     + str(page.locator(event_link_selector).count())
                 )
 
-                # Collect actual event records from techUK's official ticket
-                # listing to supplement the redirected /events page.
-                ticket_items = []
-                ticket_page = None
-                try:
-                    ticket_page = browser.new_page(
-                        user_agent=UA,
-                        viewport={"width": 1440, "height": 1000},
-                    )
-                    ticket_page.goto(
-                        "https://tickets.techuk.org/events/techukuat/",
-                        wait_until="domcontentloaded",
-                        timeout=60000,
-                    )
-                    ticket_page.wait_for_timeout(2500)
-                    ticket_html = ticket_page.content()
-                    ticket_final_url = ticket_page.url
+                # The ticket platform is protected by a Cloudflare challenge,
+                # so use techUK's own official event-calendar filter URLs instead.
+                # These filtered calendar pages are supplemental; the normal
+                # source page remains the first collection pass.
+                supplemental_items = []
+                filter_values = [
+                    "webinar-1",
+                    "partner-event",
+                    "workshop",
+                    "conference",
+                    "industry-briefing",
+                    "panel-discussion",
+                    "networking",
+                    "forum",
+                    "exhibition",
+                    "roundtable",
+                    "market-briefing",
+                ]
+                seen_calendar_urls = set()
 
-                    # Temporary diagnostic: print HTML lines that reveal the
-                    # ticket platform's event-card structure and detail links.
-                    print("[techUK DEBUG] Ticket HTML length:", len(ticket_html))
-                    print("[techUK DEBUG] Ticket HTML structure clues:")
-                    clue_count = 0
-                    for line in ticket_html.splitlines():
-                        lower_line = line.lower()
-                        if any(
-                            marker in lower_line
-                            for marker in (
-                                "application/ld+json",
-                                "eventname",
-                                "startdate",
-                                "enddate",
-                                "event",
-                                "location",
-                                "href=",
-                                "title=",
-                                "datetime",
+                for filter_value in filter_values:
+                    calendar_page = None
+                    try:
+                        calendar_url = (
+                            "https://www.techuk.org/what-we-deliver/events.html"
+                            f"?type={filter_value}"
+                        )
+                        calendar_page = browser.new_page(
+                            user_agent=UA,
+                            viewport={"width": 1440, "height": 1000},
+                        )
+                        calendar_page.goto(
+                            calendar_url,
+                            wait_until="domcontentloaded",
+                            timeout=60000,
+                        )
+                        calendar_page.wait_for_timeout(1200)
+                        final_calendar_url = calendar_page.url
+
+                        # If multiple filters redirect to the same URL, don't
+                        # repeatedly scrape an identical page.
+                        if final_calendar_url in seen_calendar_urls:
+                            print(
+                                f"[techUK DEBUG] Filter {filter_value}: "
+                                f"duplicate final URL; skipped ({final_calendar_url})"
                             )
-                        ):
-                            print("[techUK HTML]", line[:700])
-                            clue_count += 1
-                            if clue_count >= 35:
-                                break
-                    if clue_count == 0:
-                        print("[techUK HTML] No matching lines; HTML prefix:")
-                        print("[techUK HTML]", ticket_html[:2500])
+                            continue
+                        seen_calendar_urls.add(final_calendar_url)
 
-                    ticket_items = extract(ticket_html, ticket_final_url, s)
-                    print(
-                        f"[techUK DEBUG] Ticket-list URL: {ticket_final_url}"
-                    )
-                    print(
-                        f"[techUK DEBUG] Ticket-list extracted event records: "
-                        f"{len(ticket_items)}"
-                    )
-
-                    # Fallback for ticket-platform markup that the generic
-                    # extractor doesn't recognize. Start from visible headings
-                    # (the indexed ticket page renders event titles as h2/h3),
-                    # inspect their nearby card/container, then locate a likely
-                    # event-detail link without assuming a specific URL path.
-                    if not ticket_items:
-                        ticket_soup = BeautifulSoup(ticket_html, "lxml")
-                        seen_ticket_keys = set()
-                        heading_nodes = ticket_soup.select(
-                            "h1, h2, h3, h4, "
-                            "[class*='event-title'], [class*='event-name']"
+                        # Click the legacy calendar's load-more control when
+                        # present. Stop safely if no new event links appear.
+                        selector = (
+                            "a[href*='/what-we-deliver/events/'], "
+                            "a[href^='/events/'], "
+                            "a[href*='techuk.org/events/']"
                         )
+                        clicks = 0
+                        stagnant = 0
+                        previous = calendar_page.locator(selector).count()
 
-                        ignored_titles = {
-                            "buy tickets", "event details", "select tickets",
-                            "sold out", "unavailable", "the uk's technology trade association",
-                        }
+                        for attempt in range(12):
+                            load_more = calendar_page.get_by_text(
+                                re.compile(r"show\s+more\s+events", re.I)
+                            )
+                            clicked = False
+                            try:
+                                count = load_more.count()
+                            except Exception:
+                                count = 0
 
-                        for heading in heading_nodes:
-                            title = clean(heading.get_text(" ", strip=True))
-                            title_key = normalize_title(title)
-                            if (
-                                not title
-                                or len(title) < 12
-                                or len(title) > 220
-                                or title_key in ignored_titles
-                                or title_key in seen_ticket_keys
-                            ):
-                                continue
-
-                            # Look up a compact event card around the title.
-                            card = heading
-                            for _ in range(5):
-                                if not card.parent:
-                                    break
-                                card = card.parent
-                                card_text = clean(card.get_text(" ", strip=True))
-                                card_links = card.select("a[href]")
-                                if (
-                                    len(card_text) >= len(title)
-                                    and len(card_text) <= 1800
-                                    and card_links
-                                ):
-                                    # Prefer a detail link; avoid broad list,
-                                    # login, checkout, and ticket-selection URLs.
-                                    usable_links = []
-                                    for anchor in card_links:
-                                        href = abs_url(
-                                            anchor.get("href"), ticket_final_url
-                                        )
-                                        if not href:
-                                            continue
-                                        parsed = urlparse(href)
-                                        path_lower = parsed.path.lower().rstrip("/")
-                                        anchor_text = clean(
-                                            anchor.get_text(" ", strip=True)
-                                        ).lower()
-                                        if re.search(
-                                            r"login|register|checkout|basket|"
-                                            r"select-ticket|ticket-selection|"
-                                            r"privacy|terms|contact|about",
-                                            path_lower,
-                                            re.I,
-                                        ):
-                                            continue
-                                        if anchor_text in {
-                                            "event details", "select tickets",
-                                            "buy tickets", "sold out", "unavailable",
-                                        }:
-                                            usable_links.append(href)
-                                            continue
-                                        if (
-                                            parsed.netloc.lower()
-                                            in {
-                                                "tickets.techuk.org",
-                                                "www.tickets.techuk.org",
-                                            }
-                                            and path_lower
-                                            not in {
-                                                "/events",
-                                                "/events/techukuat",
-                                            }
-                                        ):
-                                            usable_links.append(href)
-
-                                    if usable_links:
-                                        break
-
-                            if not card_links:
-                                continue
-
-                            # Prefer the event-details link if present; otherwise
-                            # use the first non-listing link associated with card.
-                            event_url = None
-                            for anchor in card_links:
-                                href = abs_url(anchor.get("href"), ticket_final_url)
-                                anchor_text = clean(
-                                    anchor.get_text(" ", strip=True)
-                                ).lower()
-                                if not href:
-                                    continue
-                                parsed = urlparse(href)
-                                path_lower = parsed.path.lower().rstrip("/")
-                                if (
-                                    anchor_text == "event details"
-                                    and path_lower not in {
-                                        "/events",
-                                        "/events/techukuat",
-                                    }
-                                ):
-                                    event_url = href
-                                    break
-
-                            if not event_url:
-                                for anchor in card_links:
-                                    href = abs_url(anchor.get("href"), ticket_final_url)
-                                    if not href:
+                            for index in range(count - 1, -1, -1):
+                                control = load_more.nth(index)
+                                try:
+                                    if not control.is_visible():
                                         continue
-                                    parsed = urlparse(href)
-                                    if (
-                                        parsed.netloc.lower()
-                                        in {
-                                            "tickets.techuk.org",
-                                            "www.tickets.techuk.org",
-                                        }
-                                        and parsed.path.lower().rstrip("/")
-                                        not in {
-                                            "/events",
-                                            "/events/techukuat",
-                                        }
-                                    ):
-                                        event_url = href
+                                    control.scroll_into_view_if_needed(timeout=2500)
+                                    control.click(timeout=4000)
+                                    calendar_page.wait_for_timeout(900)
+                                    current = calendar_page.locator(selector).count()
+                                    if current > previous:
+                                        clicks += 1
+                                        previous = current
+                                        stagnant = 0
+                                        clicked = True
                                         break
+                                    stagnant += 1
+                                except Exception:
+                                    continue
 
-                            if not event_url:
+                            if clicked:
                                 continue
 
-                            seen_ticket_keys.add(title_key)
-                            card_text = clean(card.get_text(" ", strip=True))
-                            combined = f"{title} {card_text}"
-                            event = {
-                                "source_id": s["id"],
-                                "source_name": s["name"],
-                                "title": title,
-                                "description": card_text[:800],
-                                "date": parse_date(combined),
-                                "type": event_type(
-                                    f"{title} {event_url}", s["type"]
-                                ),
-                                "category": category(combined, s["category"]),
-                                "location": (
-                                    "Online"
-                                    if re.search(
-                                        r"\bonline|virtual|webinar\b",
-                                        combined,
-                                        re.I,
-                                    )
-                                    else ""
-                                ),
-                                "event_url": event_url,
-                                "registration_url": event_url,
-                                "source_url": ticket_final_url,
-                                "scraped_at": now_utc(),
-                            }
-                            event["id"] = stable_event_id(event)
-                            ticket_items.append(event)
+                            # Also scroll in case the filtered calendar uses
+                            # lazy loading rather than an explicit button.
+                            try:
+                                calendar_page.evaluate(
+                                    "window.scrollTo(0, document.body.scrollHeight)"
+                                )
+                            except Exception:
+                                pass
+                            calendar_page.wait_for_timeout(700)
+                            current = calendar_page.locator(selector).count()
+                            if current > previous:
+                                previous = current
+                                stagnant = 0
+                            else:
+                                stagnant += 1
 
-                    print(
-                        f"[techUK DEBUG] Ticket-list final candidate records: "
-                        f"{len(ticket_items)}"
-                    )
-                    for event in ticket_items[:5]:
-                        print(
-                            f"[techUK DEBUG] Ticket event sample: "
-                            f"{event.get('title', '')[:120]!r} | "
-                            f"{event.get('date')}"
+                            if stagnant >= 2:
+                                break
+
+                        calendar_html = calendar_page.content()
+                        extracted = extract(
+                            calendar_html,
+                            final_calendar_url,
+                            s,
                         )
-                except Exception as exc:
-                    print(
-                        f"[techUK DEBUG] Ticket-list extraction failed: "
-                        f"{type(exc).__name__}: {exc}"
-                    )
-                finally:
-                    if ticket_page:
-                        ticket_page.close()
+                        supplemental_items.extend(extracted)
+                        print(
+                            f"[techUK DEBUG] Official calendar filter={filter_value}; "
+                            f"final_url={final_calendar_url}; clicks={clicks}; "
+                            f"links={previous}; extracted={len(extracted)}"
+                        )
+                    except Exception as exc:
+                        print(
+                            f"[techUK DEBUG] Official calendar filter={filter_value} "
+                            f"failed: {type(exc).__name__}: {exc}"
+                        )
+                    finally:
+                        if calendar_page:
+                            calendar_page.close()
+
+                print(
+                    "[techUK DEBUG] Official calendar supplemental records: "
+                    f"{len(supplemental_items)}"
+                )
 
             else:
                 page.wait_for_timeout(250)
@@ -1084,9 +979,10 @@ with sync_playwright() as p:
             )
 
             if s["id"] == "techuk":
-                items.extend(ticket_items)
+                items.extend(supplemental_items)
 
-                # Deduplicate the combined main-page and ticket-page results.
+                # Deduplicate the main page and official filtered-calendar
+                # results using canonical stable IDs.
                 unique_items = []
                 seen_item_ids = set()
                 for item in items:

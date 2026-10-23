@@ -31,6 +31,7 @@ jobs:
         run: python scripts/scrape.py
 
      
+    
       - name: Check scraper output
         run: |
           python - <<'PY'
@@ -64,3 +65,10 @@ jobs:
 
           print("Validation completed.")
           PY
+
+      - name: Upload test events JSON
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-events-json
+          path: data/events.json
+          retention-days: 7

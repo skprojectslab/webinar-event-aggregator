@@ -30,6 +30,37 @@ jobs:
       - name: Run patched scraper
         run: python scripts/scrape.py
 
+     
       - name: Check scraper output
         run: |
-          python -c "import json; from pathlib import Path; p=Path('data/events.json'); assert p.exists(), 'FAIL: data/events.json was not created'; d=json.loads(p.read_text(encoding='utf-8')); print('Top-level type:', type(d).__name__); print('Top-level keys:', list(d.keys()) if isinstance(d, dict) else 'not an object'); print('PASS: JSON file is valid')"
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          path = Path("data/events.json")
+          data = json.loads(path.read_text(encoding="utf-8"))
+          events = data.get("events")
+
+          if not isinstance(events, list):
+              raise SystemExit("FAIL: 'events' is not a list")
+
+          print(f"Total events: {len(events)}")
+
+          for event in events:
+              if not isinstance(event, dict):
+                  continue
+
+              title = event.get("title", "")
+              url = event.get("event_url", "")
+              text = f"{title} {url}".lower()
+
+              if any(term in text for term in (
+                  "event-round-up",
+                  "event-roundup",
+                  "blog",
+                  "/insights/"
+              )):
+                  print(f"REVIEW: {title} | {url}")
+
+          print("Validation completed.")
+          PY

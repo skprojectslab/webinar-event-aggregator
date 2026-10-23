@@ -694,27 +694,48 @@ with sync_playwright() as p:
             # control.  We must expand that list before extracting data;
             # otherwise an event can be missed today and incorrectly look
             # like a brand-new event tomorrow.
+            
             if s["id"] == "techuk":
                 page.wait_for_timeout(2000)
+                clicks = 0
 
-                for _ in range(30):
+                for attempt in range(30):
                     try:
                         more = page.get_by_text(
                             "Show more events",
                             exact=True,
                         )
 
-                        if more.count() == 0:
-                            break
+                        count = more.count()
+                        print(
+                            f"[techUK DEBUG] Attempt {attempt + 1}: "
+                            f"matching controls={count}"
+                        )
+
+             if count == 0:
+                print("[techUK DEBUG] No Show more events control found.")
+                break
 
                         target = more.last
 
-                        if not target.is_visible():
-                            break
+             if not target.is_visible():
+                print("[techUK DEBUG] Control is not visible.")
+                break
 
                         target.scroll_into_view_if_needed()
                         target.click(timeout=5000)
-                        page.wait_for_timeout(800)
+                        clicks += 1
+                        print(f"[techUK DEBUG] Clicked Show more events: {clicks}")
+                        page.wait_for_timeout(1500)
+
+                    except Exception as exc:
+                        print(
+                            f"[techUK DEBUG] Stopped at attempt "
+                            f"{attempt + 1}: {type(exc).__name__}: {exc}"
+                        )
+                        break
+
+                print(f"[techUK DEBUG] Total successful clicks: {clicks}")
 
                     except Exception:
                         break

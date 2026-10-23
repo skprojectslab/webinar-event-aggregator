@@ -1,35 +1,4 @@
 
-name: Test EventRadar scraper
-
-on:
-  workflow_dispatch:
-
-permissions:
-  contents: read
-
-jobs:
-  test-scraper:
-    if: github.ref == 'refs/heads/test/event-filter-fix'
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout test branch
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Install scraper dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install beautifulsoup4 lxml playwright
-          python -m playwright install --with-deps chromium
-
-      - name: Run patched scraper
-        run: python scripts/scrape.py
-
       - name: Check scraper output
         run: |
           python - <<'PY'
@@ -41,13 +10,29 @@ jobs:
               raise SystemExit("FAIL: data/events.json was not created")
 
           data = json.loads(path.read_text(encoding="utf-8"))
-          if not isinstance(data, list):
-              raise SystemExit("FAIL: Expected events.json to contain a list")
 
-          print(f"PASS: events.json contains {len(data)} records")
-          for event in data:
+          if isinstance(data, list):
+              events = data
+          elif isinstance(data, dict):
+              events = data.get("events")
+              if not isinstance(events, list):
+                  print("Top-level JSON keys:", list(data.keys()))
+                  raise SystemExit(
+                      "FAIL: JSON is an object, but no list was found under 'events'."
+                  )
+          else:
+              raise SystemExit("FAIL: Unexpected JSON structure")
+
+          print(f"PASS: events.json contains {len(events)} records")
+
+          for event in events:
+              if not isinstance(event, dict):
+                  continue
               title = event.get("title", "")
               url = event.get("event_url", "")
-              if "event round-up" in title.lower() or "event-round-up" in url.lower():
+              if (
+                  "event round-up" in title.lower()
+                  or "event-round-up" in url.lower()
+              ):
                   print(f"REVIEW: Possible roundup retained: {title} | {url}")
           PY

@@ -822,9 +822,10 @@ with sync_playwright() as p:
                     + str(page.locator(event_link_selector).count())
                 )
 
-                # Cross-check the current techUK page against the official
-                # ticket listing. This is diagnostic only: do not merge ticket
-                # records until their detail-page structure is validated.
+                # Collect actual event records from techUK's official ticket
+                # listing to supplement the redirected /events page.
+                ticket_items = []
+                ticket_page = None
                 try:
                     ticket_page = browser.new_page(
                         user_agent=UA,
@@ -837,48 +838,98 @@ with sync_playwright() as p:
                     )
                     ticket_page.wait_for_timeout(2500)
                     ticket_html = ticket_page.content()
-                    ticket_soup = BeautifulSoup(ticket_html, "lxml")
-                    ticket_titles = set()
+                    ticket_final_url = ticket_page.url
 
-                    for node in ticket_soup.select(
-                        "h1, h2, h3, h4, a, [class*='event-title'], [class*='event-name']"
-                    ):
-                        label = clean(node.get_text(" ", strip=True))
-                        if (
-                            len(label) >= 12
-                            and len(label) <= 180
-                            and re.search(
-                                r"event|webinar|workshop|summit|conference|"
-                                r"roundtable|briefing|technology|digital|AI|cyber|"
-                                r"policy|investment|industry|data|security",
-                                label,
-                                re.I,
-                            )
-                            and not re.fullmatch(
-                                r"event details|select tickets|sold out|unavailable",
-                                label,
-                                re.I,
-                            )
-                        ):
-                            ticket_titles.add(label)
-
+                    ticket_items = extract(ticket_html, ticket_final_url, s)
                     print(
-                        f"[techUK DEBUG] Ticket-list URL: {ticket_page.url}"
+                        f"[techUK DEBUG] Ticket-list URL: {ticket_final_url}"
                     )
                     print(
-                        f"[techUK DEBUG] Ticket-list candidate labels: "
-                        f"{len(ticket_titles)}"
+                        f"[techUK DEBUG] Ticket-list extracted event records: "
+                        f"{len(ticket_items)}"
                     )
-                    ticket_page.close()
+
+                    # Fallback for ticket-platform markup that the generic
+                    # extractor doesn't recognize: use individual detail links.
+                    if not ticket_items:
+                        ticket_soup = BeautifulSoup(ticket_html, "lxml")
+                        seen_ticket_urls = set()
+                        for a in ticket_soup.select("a[href]"):
+                            href = abs_url(a.get("href"), ticket_final_url)
+                            title = clean(a.get_text(" ", strip=True))
+                            if not href or not title or len(title) < 12:
+                                continue
+                            parsed = urlparse(href)
+                            if parsed.netloc.lower() not in (
+                                "tickets.techuk.org",
+                                "www.tickets.techuk.org",
+                            ):
+                                continue
+                            if not parsed.path.startswith("/events/"):
+                                continue
+                            if parsed.path.rstrip("/") == "/events/techukuat":
+                                continue
+                            if href in seen_ticket_urls:
+                                continue
+                            if re.search(
+                                r"^(event details|select tickets|buy tickets|"
+                                r"join the member waiting list|sold out|unavailable)$",
+                                title,
+                                re.I,
+                            ):
+                                continue
+                            seen_ticket_urls.add(href)
+                            parent = a
+                            for _ in range(3):
+                                if parent.parent:
+                                    parent = parent.parent
+                            card_text = clean(parent.get_text(" ", strip=True))
+                            combined = f"{title} {card_text}"
+                            event = {
+                                "source_id": s["id"],
+                                "source_name": s["name"],
+                                "title": title,
+                                "description": card_text[:800],
+                                "date": parse_date(combined),
+                                "type": event_type(
+                                    f"{title} {href}", s["type"]
+                                ),
+                                "category": category(combined, s["category"]),
+                                "location": (
+                                    "Online"
+                                    if re.search(
+                                        r"\bonline|virtual|webinar\b",
+                                        combined,
+                                        re.I,
+                                    )
+                                    else ""
+                                ),
+                                "event_url": href,
+                                "registration_url": href,
+                                "source_url": ticket_final_url,
+                                "scraped_at": now_utc(),
+                            }
+                            event["id"] = stable_event_id(event)
+                            ticket_items.append(event)
+
+                    print(
+                        f"[techUK DEBUG] Ticket-list final candidate records: "
+                        f"{len(ticket_items)}"
+                    )
+                    for event in ticket_items[:5]:
+                        print(
+                            f"[techUK DEBUG] Ticket event sample: "
+                            f"{event.get('title', '')[:120]!r} | "
+                            f"{event.get('date')}"
+                        )
                 except Exception as exc:
                     print(
-                        f"[techUK DEBUG] Ticket-list cross-check unavailable: "
+                        f"[techUK DEBUG] Ticket-list extraction failed: "
                         f"{type(exc).__name__}: {exc}"
                     )
-                    try:
+                finally:
+                    if ticket_page:
                         ticket_page.close()
-                    except Exception:
-                        pass
 
             else:
                 page.wait_for_timeout(250)
@@ -898,6 +949,23 @@ with sync_playwright() as p:
                 final,
                 s,
             )
+
+            if s["id"] == "techuk":
+                items.extend(ticket_items)
+
+                # Deduplicate the combined main-page and ticket-page results.
+                unique_items = []
+                seen_item_ids = set()
+                for item in items:
+                    item_id = stable_event_id(item)
+                    if item_id in seen_item_ids:
+                        continue
+                    seen_item_ids.add(item_id)
+                    unique_items.append(item)
+                items = unique_items
+                print(
+                    f"[techUK DEBUG] Combined unique techUK records: {len(items)}"
+                )
 
             all_events.extend(items)
 

@@ -849,6 +849,19 @@ for old_id, old in previous_events.items():
     if old_id in matched_previous_ids:
         continue
 
+    # Exclude historical records identified as editorial content.
+    # This prevents previously saved blog/round-up pages from being
+    # reintroduced after the extraction filters have rejected them.
+    if is_non_event_article(
+        old.get("event_url", ""),
+        old.get("title", ""),
+    ):
+        print(
+            f"[FILTER] Excluding historical editorial record: "
+            f"{old.get('title', '')} | {old.get('event_url', '')}"
+        )
+        continue
+
     historical = dict(old)
 
     historical["first_seen"] = historical.get(

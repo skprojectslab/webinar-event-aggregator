@@ -158,6 +158,10 @@ def is_non_event_article(url, title=""):
     path = urlparse(clean(url)).path.lower()
     title_text = clean(title).lower()
 
+    # Exclude user profile pages, which are not event listings.
+    if re.search(r"/user/\d+/(?:profile)?/?$", path):
+        return True
+
     editorial_path = re.search(
         r"/(?:insights?|blogs?|blog|news|articles?|thought-leadership|resources)/",
         path,
@@ -174,7 +178,6 @@ def is_non_event_article(url, title=""):
         re.I,
     )
     return bool(editorial_path or roundup or editorial_title)
-
 
 def is_techuk_event_url(url):
     """Allow individual techUK event pages, but not editorial content."""

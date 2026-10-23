@@ -152,32 +152,53 @@ def event_type(text, fallback):
 
     return fallback
 
-
 def is_non_event_article(url, title=""):
-    """Reject editorial/blog/round-up pages that are not individual events."""
-    path = urlparse(clean(url)).path.lower()
+    """Reject generic pages and editorial content, while preserving individual events."""
+    parsed = urlparse(clean(url))
+    path = parsed.path.lower().rstrip("/")
     title_text = clean(title).lower()
 
-    # Exclude user profile pages, which are not event listings.
-    if re.search(r"/user/\d+/(?:profile)?/?$", path):
+    # Exclude user profile pages.
+    if re.search(r"/user/\d+(?:/profile)?$", path):
         return True
 
-    editorial_path = re.search(
-        r"/(?:insights?|blogs?|blog|news|articles?|thought-leadership|resources)/",
+    # Exclude generic utility and navigation pages.
+    if re.search(
+        r"/(?:contact(?:-us)?|about-us|privacy-policy|terms(?:-and-conditions)?"
+        r"|accessibility|search|login|register|signup|sign-up"
+        r"|press-releases?|media-contacts?)/?$",
         path,
         re.I,
-    )
-    roundup = re.search(
+    ):
+        return True
+
+    # Exclude generic listing/index pages, not individual event detail pages.
+    if re.search(
+        r"/(?:blogs?|news|articles?|insights?|events?|webinars?|"
+        r"conferences?|resources?|press-releases?)/?$",
+        path,
+        re.I,
+    ):
+        return True
+
+    # Exclude known non-event content patterns.
+    if re.search(
         r"event[\s_-]*round[\s_-]*up|event[\s_-]*roundup",
         path + " " + title_text,
         re.I,
-    )
-    editorial_title = re.search(
-        r"\b(?:blog|blogs|opinion|commentary|article|event round[- ]?up)\b",
+    ):
+        return True
+
+    # Exclude clearly editorial titles.
+    if re.search(
+        r"\b(?:opinion|commentary|editorial|"
+        r"insights and publications)\b",
         title_text,
         re.I,
-    )
-    return bool(editorial_path or roundup or editorial_title)
+    ):
+        return True
+
+    return False
 
 def is_techuk_event_url(url):
     """Allow individual techUK event pages, but not editorial content."""

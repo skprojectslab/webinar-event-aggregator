@@ -1,0 +1,31 @@
+
+name: Test EventRadar scraper
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test-scraper:
+    if: github.ref == 'refs/heads/test/event-filter-fix'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout test branch
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install scraper dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install beautifulsoup4 lxml playwright
+          python -m playwright install --with-deps chromium
+
+      - name: Run patched scraper
+        run: python scripts/scrape.py

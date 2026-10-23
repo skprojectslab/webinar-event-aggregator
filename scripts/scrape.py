@@ -689,62 +689,150 @@ with sync_playwright() as p:
                 timeout=60000,
             )
 
-            # techUK loads only the first batch of events initially and
-            # exposes the remaining events behind a "Show more events"
-            # control.  We must expand that list before extracting data;
-            # otherwise an event can be missed today and incorrectly look
-            # like a brand-new event tomorrow.
-            
+            # techUK event listings may render their load-more control in
+            # different ways. Try accessible role/text selectors first, then
+            # inspect visible controls for a matching label. Keep diagnostics
+            # so the next test tells us what Playwright actually sees.
             if s["id"] == "techuk":
-                page.wait_for_timeout(2000)
+                page.wait_for_timeout(5000)
+                print(f"[techUK DEBUG] URL: {page.url}")
+                print(f"[techUK DEBUG] Page title: {page.title()}")
+
                 clicks = 0
-
                 for attempt in range(30):
-                    try:
-                        more = page.get_by_text(
-                            "Show more events",
-                            exact=True,
-                        )
+                    candidates = [
+                        page.get_by_role(
+                            "button",
+                            name=re.compile(r"show\s*more\s*events|load\s*more", re.I),
+                        ),
+                        page.get_by_role(
+                            "link",
+                            name=re.compile(r"show\s*more\s*events|load\s*more", re.I),
+                        ),
+                        page.get_by_text(
+                            re.compile(r"show\s*more\s*events|load\s*more", re.I)
+                        ),
+                        page.locator(
+                            "button[class*='more'], a[class*='more'], "
+                            "[role='button'][class*='more'], "
+                            "button[class*='load'], a[class*='load']"
+                        ),
+                    ]
 
-                        count = more.count()
+                    target = None
+                    for locator in candidates:
+                        try:
+                            count = locator.count()
+                            if count:
+                                for index in range(count - 1, -1, -1):
+                                    candidate = locator.nth(index)
+                                    if candidate.is_visible():
+                                        label = " ".join(
+                                            candidate.inner_text(timeout=1000).split()
+                                        )
+                                        if (
+                                            not label
+                                            or re.search(
+                                                r"show\s*more\s*events|load\s*more",
+                                                label,
+                                                re.I,
+                                            )
+                                        ):
+                                            target = candidate
+                                            break
+                                if target is not None:
+                                    break
+                        except Exception:
+                            continue
+
+                    if target is None:
                         print(
                             f"[techUK DEBUG] Attempt {attempt + 1}: "
-                            f"matching controls={count}"
-                        )
-
-                        if count == 0:
-                            print(
-                                "[techUK DEBUG] No Show more events control found."
-                            )
-                            break
-
-                        target = more.last
-
-                        if not target.is_visible():
-                            print(
-                                "[techUK DEBUG] Control is not visible."
-                            )
-                            break
-
-                        target.scroll_into_view_if_needed()
-                        target.click(timeout=5000)
-                        clicks += 1
-                        print(
-                            f"[techUK DEBUG] Clicked Show more events: {clicks}"
-                        )
-                        page.wait_for_timeout(1500)
-
-                    except Exception as exc:
-                        print(
-                            f"[techUK DEBUG] Stopped at attempt "
-                            f"{attempt + 1}: {type(exc).__name__}: {exc}"
+                            "no visible load-more control matched."
                         )
                         break
 
-                print(
-                    f"[techUK DEBUG] Total successful clicks: {clicks}"
-                )
+                    try:
+                        label = " ".join(target.inner_text(timeout=1000).split())
+                    except Exception:
+                        label = "(label unavailable)"
 
+                    try:
+                        before = page.locator(
+                            "a[href*='/what-we-deliver/events/'], "
+                            "a[href*='/events/']"
+                        ).count()
+                        target.scroll_into_view_if_needed(timeout=3000)
+                        target.click(timeout=5000)
+                        clicks += 1
+                        print(
+                            f"[techUK DEBUG] Click {clicks}: label={label!r}; "
+                            f"event-path links before={before}"
+                        )
+                        page.wait_for_timeout(1800)
+
+                        after = page.locator(
+                            "a[href*='/what-we-deliver/events/'], "
+                            "a[href*='/events/']"
+                        ).count()
+                        print(
+                            f"[techUK DEBUG] Event-path links after click={after}"
+                        )
+                        if after <= before:
+                            print(
+                                "[techUK DEBUG] Click did not increase event-path "
+                                "link count; stopping to avoid repeated clicks."
+                            )
+                            break
+                    except Exception as exc:
+                        print(
+                            f"[techUK DEBUG] Click attempt failed: "
+                            f"{type(exc).__name__}: {exc}"
+                        )
+                        break
+
+                print(f"[techUK DEBUG] Total successful clicks: {clicks}")
+                try:
+                    visible_controls = page.locator(
+                        "button, a, [role='button']"
+                    )
+                    shown = 0
+                    for index in range(min(visible_controls.count(), 150)):
+                        control = visible_controls.nth(index)
+                        try:
+                            if not control.is_visible():
+                                continue
+                            label = " ".join(
+                                control.inner_text(timeout=500).split()
+                            )
+                            if label and re.search(
+                                r"more|event|load|show",
+                                label,
+                                re.I,
+                            ):
+                                print(
+                                    f"[techUK DEBUG] Visible control: {label[:120]!r}"
+                                )
+                                shown += 1
+                                if shown >= 25:
+                                    break
+                        except Exception:
+                            continue
+                except Exception as exc:
+                    print(
+                        f"[techUK DEBUG] Control inspection failed: "
+                        f"{type(exc).__name__}: {exc}"
+                    )
+
+                print(
+                    "[techUK DEBUG] Event-path links before extraction: "
+                    + str(
+                        page.locator(
+                            "a[href*='/what-we-deliver/events/'], "
+                            "a[href*='/events/']"
+                        ).count()
+                    )
+                )
             else:
                 page.wait_for_timeout(250)
 
@@ -752,7 +840,6 @@ with sync_playwright() as p:
                 page.evaluate(
                     "window.scrollTo(0, document.body.scrollHeight)"
                 )
-
                 page.wait_for_timeout(1500)
 
             html = page.content()

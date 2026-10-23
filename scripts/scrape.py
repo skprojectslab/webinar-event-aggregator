@@ -712,20 +712,26 @@ with sync_playwright() as p:
                             f"matching controls={count}"
                         )
 
-             if count == 0:
-                print("[techUK DEBUG] No Show more events control found.")
-                break
+                        if count == 0:
+                            print(
+                                "[techUK DEBUG] No Show more events control found."
+                            )
+                            break
 
                         target = more.last
 
-             if not target.is_visible():
-                print("[techUK DEBUG] Control is not visible.")
-                break
+                        if not target.is_visible():
+                            print(
+                                "[techUK DEBUG] Control is not visible."
+                            )
+                            break
 
                         target.scroll_into_view_if_needed()
                         target.click(timeout=5000)
                         clicks += 1
-                        print(f"[techUK DEBUG] Clicked Show more events: {clicks}")
+                        print(
+                            f"[techUK DEBUG] Clicked Show more events: {clicks}"
+                        )
                         page.wait_for_timeout(1500)
 
                     except Exception as exc:
@@ -735,10 +741,9 @@ with sync_playwright() as p:
                         )
                         break
 
-                print(f"[techUK DEBUG] Total successful clicks: {clicks}")
-
-                    except Exception:
-                        break
+                print(
+                    f"[techUK DEBUG] Total successful clicks: {clicks}"
+                )
 
             else:
                 page.wait_for_timeout(250)

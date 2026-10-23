@@ -689,150 +689,197 @@ with sync_playwright() as p:
                 timeout=60000,
             )
 
-            # techUK event listings may render their load-more control in
-            # different ways. Try accessible role/text selectors first, then
-            # inspect visible controls for a matching label. Keep diagnostics
-            # so the next test tells us what Playwright actually sees.
+            # techUK now redirects the older calendar URL to /events.
+            # Do not assume a control named exactly "Show more events" exists.
+            # Repeatedly inspect likely load-more/next controls and scroll the
+            # current listing, stopping after several rounds without growth.
             if s["id"] == "techuk":
-                page.wait_for_timeout(5000)
+                page.wait_for_timeout(4000)
                 print(f"[techUK DEBUG] URL: {page.url}")
                 print(f"[techUK DEBUG] Page title: {page.title()}")
 
-                clicks = 0
-                for attempt in range(30):
-                    candidates = [
+                event_link_selector = (
+                    "a[href*='/what-we-deliver/events/'], "
+                    "a[href^='/events/'], "
+                    "a[href*='techuk.org/events/']"
+                )
+                stagnant_rounds = 0
+                total_clicks = 0
+                previous_count = page.locator(event_link_selector).count()
+
+                print(
+                    f"[techUK DEBUG] Initial event-path links: {previous_count}"
+                )
+
+                for attempt in range(15):
+                    clicked = False
+
+                    # Try common accessible names first; the exact wording
+                    # can change between versions of the techUK site.
+                    candidate_selectors = [
                         page.get_by_role(
                             "button",
-                            name=re.compile(r"show\s*more\s*events|load\s*more", re.I),
-                        ),
+                            name=re.compile(r"show\s*more|load\s*more|next|more events", re.I),
+                    ),
                         page.get_by_role(
                             "link",
-                            name=re.compile(r"show\s*more\s*events|load\s*more", re.I),
-                        ),
-                        page.get_by_text(
-                            re.compile(r"show\s*more\s*events|load\s*more", re.I)
-                        ),
+                            name=re.compile(r"show\s*more|load\s*more|next|more events", re.I),
+                    ),
                         page.locator(
                             "button[class*='more'], a[class*='more'], "
-                            "[role='button'][class*='more'], "
-                            "button[class*='load'], a[class*='load']"
+                            "button[class*='load'], a[class*='load'], "
+                            "button[aria-label*='next' i], a[aria-label*='next' i], "
+                            "[role='button'][aria-label*='next' i]"
                         ),
                     ]
 
-                    target = None
-                    for locator in candidates:
+                    for locator in candidate_selectors:
                         try:
                             count = locator.count()
-                            if count:
-                                for index in range(count - 1, -1, -1):
-                                    candidate = locator.nth(index)
-                                    if candidate.is_visible():
-                                        label = " ".join(
-                                            candidate.inner_text(timeout=1000).split()
-                                        )
-                                        if (
-                                            not label
-                                            or re.search(
-                                                r"show\s*more\s*events|load\s*more",
-                                                label,
-                                                re.I,
-                                            )
-                                        ):
-                                            target = candidate
-                                            break
-                                if target is not None:
-                                    break
                         except Exception:
                             continue
 
-                    if target is None:
-                        print(
-                            f"[techUK DEBUG] Attempt {attempt + 1}: "
-                            "no visible load-more control matched."
-                        )
-                        break
+                        for index in range(count - 1, -1, -1):
+                            candidate = locator.nth(index)
+                            try:
+                                if not candidate.is_visible():
+                                    continue
+                                label = " ".join(
+                                    candidate.inner_text(timeout=700).split()
+                                )
+                                # Don't click generic "Events" navigation.
+                                if label and not re.search(
+                                    r"show\s*more|load\s*more|more events|^next\b|next page",
+                                    label,
+                                    re.I,
+                                ):
+                                    continue
 
-                    try:
-                        label = " ".join(target.inner_text(timeout=1000).split())
-                    except Exception:
-                        label = "(label unavailable)"
+                                before_click = page.locator(
+                                    event_link_selector
+                                ).count()
+                                candidate.scroll_into_view_if_needed(timeout=2500)
+                                candidate.click(timeout=4000)
+                                page.wait_for_timeout(1400)
+                                after_click = page.locator(
+                                    event_link_selector
+                                ).count()
 
-                    try:
-                        before = page.locator(
-                            "a[href*='/what-we-deliver/events/'], "
-                            "a[href*='/events/']"
+                                if after_click > before_click:
+                                    total_clicks += 1
+                                    clicked = True
+                                    print(
+                                        f"[techUK DEBUG] Click {total_clicks}: "
+                                        f"{label[:100]!r}; links {before_click}->{after_click}"
+                                    )
+                                    previous_count = after_click
+                                    break
+                            except Exception as exc:
+                                print(
+                                    f"[techUK DEBUG] Candidate control skipped: "
+                                    f"{type(exc).__name__}: {exc}"
+                                )
+
+                        if clicked:
+                            break
+
+                    if not clicked:
+                        # The current /events page may lazy-load as the page
+                        # scrolls, even when no explicit load-more control exists.
+                        try:
+                            page.evaluate(
+                                "window.scrollTo(0, document.body.scrollHeight)"
+                            )
+                        except Exception:
+                            pass
+                        page.wait_for_timeout(1300)
+                        current_count = page.locator(
+                            event_link_selector
                         ).count()
-                        target.scroll_into_view_if_needed(timeout=3000)
-                        target.click(timeout=5000)
-                        clicks += 1
                         print(
-                            f"[techUK DEBUG] Click {clicks}: label={label!r}; "
-                            f"event-path links before={before}"
+                            f"[techUK DEBUG] Scroll round {attempt + 1}: "
+                            f"event-path links={current_count}"
                         )
-                        page.wait_for_timeout(1800)
 
-                        after = page.locator(
-                            "a[href*='/what-we-deliver/events/'], "
-                            "a[href*='/events/']"
-                        ).count()
-                        print(
-                            f"[techUK DEBUG] Event-path links after click={after}"
-                        )
-                        if after <= before:
+                        if current_count > previous_count:
+                            previous_count = current_count
+                            stagnant_rounds = 0
+                        else:
+                            stagnant_rounds += 1
+
+                        if stagnant_rounds >= 3:
                             print(
-                                "[techUK DEBUG] Click did not increase event-path "
-                                "link count; stopping to avoid repeated clicks."
+                                "[techUK DEBUG] Stopping after 3 rounds "
+                                "without additional event links."
                             )
                             break
-                    except Exception as exc:
-                        print(
-                            f"[techUK DEBUG] Click attempt failed: "
-                            f"{type(exc).__name__}: {exc}"
-                        )
-                        break
+                    else:
+                        stagnant_rounds = 0
 
-                print(f"[techUK DEBUG] Total successful clicks: {clicks}")
+                print(f"[techUK DEBUG] Successful load-more clicks: {total_clicks}")
+                print(
+                    "[techUK DEBUG] Final event-path links: "
+                    + str(page.locator(event_link_selector).count())
+                )
+
+                # Cross-check the current techUK page against the official
+                # ticket listing. This is diagnostic only: do not merge ticket
+                # records until their detail-page structure is validated.
                 try:
-                    visible_controls = page.locator(
-                        "button, a, [role='button']"
+                    ticket_page = browser.new_page(
+                        user_agent=UA,
+                        viewport={"width": 1440, "height": 1000},
                     )
-                    shown = 0
-                    for index in range(min(visible_controls.count(), 150)):
-                        control = visible_controls.nth(index)
-                        try:
-                            if not control.is_visible():
-                                continue
-                            label = " ".join(
-                                control.inner_text(timeout=500).split()
-                            )
-                            if label and re.search(
-                                r"more|event|load|show",
+                    ticket_page.goto(
+                        "https://tickets.techuk.org/events/techukuat/",
+                        wait_until="domcontentloaded",
+                        timeout=60000,
+                    )
+                    ticket_page.wait_for_timeout(2500)
+                    ticket_html = ticket_page.content()
+                    ticket_soup = BeautifulSoup(ticket_html, "lxml")
+                    ticket_titles = set()
+
+                    for node in ticket_soup.select(
+                        "h1, h2, h3, h4, a, [class*='event-title'], [class*='event-name']"
+                    ):
+                        label = clean(node.get_text(" ", strip=True))
+                        if (
+                            len(label) >= 12
+                            and len(label) <= 180
+                            and re.search(
+                                r"event|webinar|workshop|summit|conference|"
+                                r"roundtable|briefing|technology|digital|AI|cyber|"
+                                r"policy|investment|industry|data|security",
                                 label,
                                 re.I,
-                            ):
-                                print(
-                                    f"[techUK DEBUG] Visible control: {label[:120]!r}"
-                                )
-                                shown += 1
-                                if shown >= 25:
-                                    break
-                        except Exception:
-                            continue
+                            )
+                            and not re.fullmatch(
+                                r"event details|select tickets|sold out|unavailable",
+                                label,
+                                re.I,
+                            )
+                        ):
+                            ticket_titles.add(label)
+
+                    print(
+                        f"[techUK DEBUG] Ticket-list URL: {ticket_page.url}"
+                    )
+                    print(
+                        f"[techUK DEBUG] Ticket-list candidate labels: "
+                        f"{len(ticket_titles)}"
+                    )
+                    ticket_page.close()
                 except Exception as exc:
                     print(
-                        f"[techUK DEBUG] Control inspection failed: "
+                        f"[techUK DEBUG] Ticket-list cross-check unavailable: "
                         f"{type(exc).__name__}: {exc}"
                     )
+                    try:
+                        ticket_page.close()
+                    except Exception:
+                        pass
 
-                print(
-                    "[techUK DEBUG] Event-path links before extraction: "
-                    + str(
-                        page.locator(
-                            "a[href*='/what-we-deliver/events/'], "
-                            "a[href*='/events/']"
-                        ).count()
-                    )
-                )
             else:
                 page.wait_for_timeout(250)
 

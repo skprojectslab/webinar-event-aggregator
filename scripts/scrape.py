@@ -129,21 +129,62 @@ def parse_date(text):
 # =========================================================
 
 def event_type(text, fallback):
+    """Classify from the event title/URL, not a long description.
+
+    Descriptions can mention other events (for example, a roundup article
+    mentioning a summit or webinar) and must not determine the event type.
+    Call this function with the title plus the individual event URL only.
+    """
     t = clean(text).lower()
 
+    # Match specific event formats only when stated in the title or URL.
     for word, typ in [
+        ("webinar", "webinar"),
         ("conference", "conference"),
         ("summit", "conference"),
         ("workshop", "workshop"),
         ("masterclass", "workshop"),
         ("seminar", "seminar"),
         ("meetup", "meetup"),
-        ("webinar", "webinar"),
     ]:
-        if word in t:
+        if re.search(r"\b" + re.escape(word) + r"\b", t):
             return typ
 
     return fallback
+
+
+def is_non_event_article(url, title=""):
+    """Reject editorial/blog/round-up pages that are not individual events."""
+    path = urlparse(clean(url)).path.lower()
+    title_text = clean(title).lower()
+
+    editorial_path = re.search(
+        r"/(?:insights?|blogs?|blog|news|articles?|thought-leadership|resources)/",
+        path,
+        re.I,
+    )
+    roundup = re.search(
+        r"event[\s_-]*round[\s_-]*up|event[\s_-]*roundup",
+        path + " " + title_text,
+        re.I,
+    )
+    editorial_title = re.search(
+        r"\b(?:blog|blogs|opinion|commentary|article|event round[- ]?up)\b",
+        title_text,
+        re.I,
+    )
+    return bool(editorial_path or roundup or editorial_title)
+
+
+def is_techuk_event_url(url):
+    """Allow individual techUK event pages, but not editorial content."""
+    path = urlparse(clean(url)).path.lower()
+    if is_non_event_article(url):
+        return False
+    return (
+        path.startswith("/what-we-deliver/events/")
+        or path.startswith("/events/")
+    )
 
 
 # =========================================================
@@ -314,7 +355,7 @@ def extract(html, final_url, source):
 
     soup = BeautifulSoup(html, "lxml")
 
-    if s["id"] == "techuk":
+    if source["id"] == "techuk":
         # techUK's events page contains many generic navigation/footer list
         # items. Only inspect event cards plus links under the events path.
         cards = soup.select(
@@ -322,12 +363,14 @@ def extract(html, final_url, source):
             "[class*='event-card']"
         )
         event_links = soup.select(
-            "a[href*='/what-we-deliver/events/']"
+            "a[href*='/what-we-deliver/events/'], a[href*='/events/']"
         )
         existing_hrefs = {
             a.get("href")
             for card in cards
-            for a in card.select("a[href*='/what-we-deliver/events/']")
+            for a in card.select(
+                "a[href*='/what-we-deliver/events/'], a[href*='/events/']"
+            )
         }
         for a in event_links:
             href = a.get("href")
@@ -400,7 +443,9 @@ def extract(html, final_url, source):
             if not u:
                 continue
 
-            if s["id"] == "techuk" and "/what-we-deliver/events/" not in u:
+            if source["id"] == "techuk" and not is_techuk_event_url(u):
+                continue
+            if is_non_event_article(u, txt):
                 continue
 
             if not event_url and eventish(u, txt):
@@ -428,7 +473,7 @@ def extract(html, final_url, source):
             "description": desc[:800],
             "date": parse_date(combined),
             "type": event_type(
-                combined,
+                f"{title} {event_url}",
                 source["type"],
             ),
             "category": category(
@@ -482,6 +527,8 @@ def extract(html, final_url, source):
                 or len(txt) < 8
                 or len(txt) > 240
                 or u in seen
+                or is_non_event_article(u, txt)
+                or (source["id"] == "techuk" and not is_techuk_event_url(u))
                 or not eventish(u, txt)
             ):
                 continue
@@ -506,7 +553,7 @@ def extract(html, final_url, source):
                 "description": parent[:800],
                 "date": parse_date(parent),
                 "type": event_type(
-                    combined,
+                    f"{txt} {u}",
                     source["type"],
                 ),
                 "category": category(

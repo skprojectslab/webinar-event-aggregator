@@ -838,10 +838,36 @@ with sync_playwright() as p:
                     )
                     ticket_page.wait_for_timeout(2500)
                     ticket_html = ticket_page.content()
-                    print("[techUK DEBUG] Ticket HTML length:", len(ticket_html))
-                    print("[techUK DEBUG] Ticket HTML sample:")
-                    print(ticket_html[:5000])
                     ticket_final_url = ticket_page.url
+
+                    # Temporary diagnostic: print HTML lines that reveal the
+                    # ticket platform's event-card structure and detail links.
+                    print("[techUK DEBUG] Ticket HTML length:", len(ticket_html))
+                    print("[techUK DEBUG] Ticket HTML structure clues:")
+                    clue_count = 0
+                    for line in ticket_html.splitlines():
+                        lower_line = line.lower()
+                        if any(
+                            marker in lower_line
+                            for marker in (
+                                "application/ld+json",
+                                "eventname",
+                                "startdate",
+                                "enddate",
+                                "event",
+                                "location",
+                                "href=",
+                                "title=",
+                                "datetime",
+                            )
+                        ):
+                            print("[techUK HTML]", line[:700])
+                            clue_count += 1
+                            if clue_count >= 35:
+                                break
+                    if clue_count == 0:
+                        print("[techUK HTML] No matching lines; HTML prefix:")
+                        print("[techUK HTML]", ticket_html[:2500])
 
                     ticket_items = extract(ticket_html, ticket_final_url, s)
                     print(

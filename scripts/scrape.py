@@ -129,21 +129,62 @@ def parse_date(text):
 # =========================================================
 
 def event_type(text, fallback):
+    """Classify from the event title/URL, not a long description.
+
+    Descriptions can mention other events (for example, a roundup article
+    mentioning a summit or webinar) and must not determine the event type.
+    Call this function with the title plus the individual event URL only.
+    """
     t = clean(text).lower()
 
+    # Match specific event formats only when stated in the title or URL.
     for word, typ in [
+        ("webinar", "webinar"),
         ("conference", "conference"),
         ("summit", "conference"),
         ("workshop", "workshop"),
         ("masterclass", "workshop"),
         ("seminar", "seminar"),
         ("meetup", "meetup"),
-        ("webinar", "webinar"),
     ]:
-        if word in t:
+        if re.search(r"\b" + re.escape(word) + r"\b", t):
             return typ
 
     return fallback
+
+
+def is_non_event_article(url, title=""):
+    """Reject editorial/blog/round-up pages that are not individual events."""
+    path = urlparse(clean(url)).path.lower()
+    title_text = clean(title).lower()
+
+    editorial_path = re.search(
+        r"/(?:insights?|blogs?|blog|news|articles?|thought-leadership|resources)/",
+        path,
+        re.I,
+    )
+    roundup = re.search(
+        r"event[\s_-]*round[\s_-]*up|event[\s_-]*roundup",
+        path + " " + title_text,
+        re.I,
+    )
+    editorial_title = re.search(
+        r"\b(?:blog|blogs|opinion|commentary|article|event round[- ]?up)\b",
+        title_text,
+        re.I,
+    )
+    return bool(editorial_path or roundup or editorial_title)
+
+
+def is_techuk_event_url(url):
+    """Allow individual techUK event pages, but not editorial content."""
+    path = urlparse(clean(url)).path.lower()
+    if is_non_event_article(url):
+        return False
+    return (
+        path.startswith("/what-we-deliver/events/")
+        or path.startswith("/events/")
+    )
 
 
 # =========================================================
@@ -314,7 +355,7 @@ def extract(html, final_url, source):
 
     soup = BeautifulSoup(html, "lxml")
 
-    if s["id"] == "techuk":
+    if source["id"] == "techuk":
         # techUK's events page contains many generic navigation/footer list
         # items. Only inspect event cards plus links under the events path.
         cards = soup.select(
@@ -322,12 +363,14 @@ def extract(html, final_url, source):
             "[class*='event-card']"
         )
         event_links = soup.select(
-            "a[href*='/what-we-deliver/events/']"
+            "a[href*='/what-we-deliver/events/'], a[href*='/events/']"
         )
         existing_hrefs = {
             a.get("href")
             for card in cards
-            for a in card.select("a[href*='/what-we-deliver/events/']")
+            for a in card.select(
+                "a[href*='/what-we-deliver/events/'], a[href*='/events/']"
+            )
         }
         for a in event_links:
             href = a.get("href")
@@ -400,7 +443,9 @@ def extract(html, final_url, source):
             if not u:
                 continue
 
-            if s["id"] == "techuk" and "/what-we-deliver/events/" not in u:
+            if source["id"] == "techuk" and not is_techuk_event_url(u):
+                continue
+            if is_non_event_article(u, txt):
                 continue
 
             if not event_url and eventish(u, txt):
@@ -428,7 +473,7 @@ def extract(html, final_url, source):
             "description": desc[:800],
             "date": parse_date(combined),
             "type": event_type(
-                combined,
+                f"{title} {event_url}",
                 source["type"],
             ),
             "category": category(
@@ -482,6 +527,8 @@ def extract(html, final_url, source):
                 or len(txt) < 8
                 or len(txt) > 240
                 or u in seen
+                or is_non_event_article(u, txt)
+                or (source["id"] == "techuk" and not is_techuk_event_url(u))
                 or not eventish(u, txt)
             ):
                 continue
@@ -506,7 +553,7 @@ def extract(html, final_url, source):
                 "description": parent[:800],
                 "date": parse_date(parent),
                 "type": event_type(
-                    combined,
+                    f"{txt} {u}",
                     source["type"],
                 ),
                 "category": category(
@@ -618,35 +665,47 @@ with sync_playwright() as p:
                 timeout=60000,
             )
 
-            # techUK loads only the first batch of events initially and
-            # exposes the remaining events behind a "Show more events"
-            # control.  We must expand that list before extracting data;
-            # otherwise an event can be missed today and incorrectly look
-            # like a brand-new event tomorrow.
+            # techUK's current /events page progressively loads more event
+            # cards as the user scrolls. HAR evidence shows Next.js RSC
+            # requests for individual event routes are triggered by scrolling;
+            # the old "Show more events" button loop did not expand the list.
+            # Scroll repeatedly and stop only after the event-link count has
+            # remained stable for several rounds, with a hard safety limit.
             if s["id"] == "techuk":
                 page.wait_for_timeout(2000)
+                stable_rounds = 0
+                previous_count = -1
 
-                for _ in range(30):
+                for round_no in range(40):
                     try:
-                        more = page.get_by_text(
-                            "Show more events",
-                            exact=True,
+                        count = page.locator(
+                            "a[href*='/events/'], a[href*='/what-we-deliver/events/']"
+                        ).count()
+                        print(
+                            f"[techUK SCROLL] round={round_no + 1} "
+                            f"event_path_links={count}"
                         )
 
-                        if more.count() == 0:
+                        if count == previous_count:
+                            stable_rounds += 1
+                        else:
+                            stable_rounds = 0
+                        previous_count = count
+
+                        if stable_rounds >= 4:
                             break
 
-                        target = more.last
-
-                        if not target.is_visible():
-                            break
-
-                        target.scroll_into_view_if_needed()
-                        target.click(timeout=5000)
-                        page.wait_for_timeout(800)
-
-                    except Exception:
+                        page.evaluate(
+                            "window.scrollTo(0, document.body.scrollHeight)"
+                        )
+                        page.wait_for_timeout(1000)
+                    except Exception as scroll_error:
+                        print(f"[techUK SCROLL WARNING] {scroll_error!r}")
                         break
+
+                # Return to the top before capturing the final DOM.
+                page.evaluate("window.scrollTo(0, 0)")
+                page.wait_for_timeout(300)
 
             else:
                 page.wait_for_timeout(250)
@@ -800,6 +859,19 @@ merged_events = list(dedup)
 for old_id, old in previous_events.items():
 
     if old_id in matched_previous_ids:
+        continue
+
+    # Exclude historical records identified as editorial content.
+    # This prevents previously saved blog/round-up pages from being
+    # reintroduced after the extraction filters have rejected them.
+    if is_non_event_article(
+        old.get("event_url", ""),
+        old.get("title", ""),
+    ):
+        print(
+            f"[FILTER] Excluding historical editorial record: "
+            f"{old.get('title', '')} | {old.get('event_url', '')}"
+        )
         continue
 
     historical = dict(old)

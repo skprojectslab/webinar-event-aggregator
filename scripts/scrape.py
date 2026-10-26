@@ -697,6 +697,19 @@ with sync_playwright() as p:
                         f"[techUK PAGINATION] page={page_no}; "
                         f"event_links={len(signature)}"
                     )
+                    titles = [
+                    clean(a.get_text(" ", strip=True))
+                    for a in soup_now.select(
+                    "a[href*='/what-we-deliver/events/'], "
+                     "a[href*='/events/']"
+                    )
+                    ]
+                    titles = [t for t in titles if t]
+
+                    print(
+                    f"[techUK PAGINATION] page={page_no}; "
+                    f"sample_titles={titles[:8]}"
+                    )
                     if not signature or signature in seen_page_signatures:
                         print("[techUK PAGINATION] Stopping: empty or repeated page signature.")
                         break

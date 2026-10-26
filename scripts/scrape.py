@@ -945,6 +945,23 @@ with sync_playwright() as p:
                             f"final_url={final_calendar_url}; clicks={clicks}; "
                             f"links={previous}; extracted={len(extracted)}"
                         )
+
+                        # Diagnostic: print the actual records returned by each
+                        # filter to expose overlap between filtered result sets.
+                        for record_index, record in enumerate(extracted, start=1):
+                            record_title = " ".join(
+                                str(record.get("title") or record.get("name") or "(no title)").split()
+                            )
+                            record_url = str(
+                                record.get("url")
+                                or record.get("link")
+                                or record.get("event_url")
+                                or "(no URL field)"
+                            )
+                            print(
+                                f"[techUK EVENT] filter={filter_value}; "
+                                f"item={record_index}; title={record_title}; url={record_url}"
+                            )
                     except Exception as exc:
                         print(
                             f"[techUK DEBUG] Official calendar filter={filter_value} "
@@ -957,6 +974,11 @@ with sync_playwright() as p:
                 print(
                     "[techUK DEBUG] Official calendar supplemental records: "
                     f"{len(supplemental_items)}"
+                )
+                supplemental_ids = [stable_event_id(record) for record in supplemental_items]
+                print(
+                    "[techUK DEBUG] Supplemental unique IDs: "
+                    f"{len(set(supplemental_ids))} / {len(supplemental_ids)} records"
                 )
 
             else:

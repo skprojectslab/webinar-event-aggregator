@@ -704,14 +704,70 @@ with sync_playwright() as p:
 
                     next_page_no = page_no + 1
                     try:
-                        next_button = page.get_by_role(
-                            "button", name=f"Go to page {next_page_no}"
-                        )
-                        if next_button.count() == 0 or not next_button.first.is_visible():
-                            print("[techUK PAGINATION] No next numbered page button found.")
+                        # Pagination may expose numbered buttons only for the
+                        # visible window and use an arrow button for the next
+                        # page. Try explicit page controls first, then common
+                        # accessible labels and finally rel/URL-based links.
+                        next_control = None
+                        candidates = [
+                            page.get_by_role("button", name=re.compile(
+                                rf"^(go to page\s*{next_page_no}|page\s*{next_page_no}|{next_page_no})$", re.I
+                            )),
+                            page.get_by_role("link", name=re.compile(
+                                rf"^(go to page\s*{next_page_no}|page\s*{next_page_no}|{next_page_no})$", re.I
+                            )),
+                            page.get_by_role("button", name=re.compile(
+                                r"^(next|next page|go to next page|next page of results)$", re.I
+                            )),
+                            page.get_by_role("link", name=re.compile(
+                                r"^(next|next page|go to next page|next page of results)$", re.I
+                            )),
+                            page.locator('button[aria-label*="next" i]:not([disabled])'),
+                            page.locator('a[rel="next"], a[aria-label*="next" i]'),
+                        ]
+                        for candidate in candidates:
+                            for idx in range(candidate.count()):
+                                element = candidate.nth(idx)
+                                try:
+                                    if element.is_visible() and element.is_enabled():
+                                        next_control = element
+                                        break
+                                except Exception:
+                                    continue
+                            if next_control is not None:
+                                break
+
+                        if next_control is None:
+                            # Some React pagers render an icon-only button.
+                            # Inspect buttons/links for a next-page hint in
+                            # title, aria-label, data attributes or URL.
+                            hint = page.locator(
+                                'button:not([disabled]), a[href]'
+                            ).evaluate_all("els => els.map((e, i) => ({i, tag:e.tagName, text:(e.innerText||'').trim(), aria:e.getAttribute('aria-label')||'', title:e.getAttribute('title')||'', rel:e.getAttribute('rel')||'', href:e.getAttribute('href')||'', cls:typeof e.className === 'string' ? e.className : ''})).filter(x => /next|forward|pagination/i.test([x.text,x.aria,x.title,x.rel,x.href,x.cls].join(' '))).slice(-12)")
+                            if hint:
+                                print(f"[techUK PAGINATION] Next-control candidates: {hint}")
+                            print("[techUK PAGINATION] No usable next-page control found; stopping safely.")
                             break
-                        next_button.first.click(timeout=5000)
+
+                        before_signature = signature
+                        next_control.click(timeout=5000)
                         page.wait_for_timeout(900)
+                        # If the page changes asynchronously, wait briefly for
+                        # its event links to differ from the previous page.
+                        try:
+                            page.wait_for_function(
+                                """previous => {
+                                    const urls = [...document.querySelectorAll('a[href]')]
+                                      .map(a => a.href.split('#')[0])
+                                      .filter(u => u.includes('/events/'))
+                                      .sort();
+                                    return JSON.stringify(urls) !== JSON.stringify(previous);
+                                }""",
+                                arg=list(before_signature),
+                                timeout=4000,
+                            )
+                        except Exception:
+                            pass
                     except Exception as page_error:
                         print(f"[techUK PAGINATION] Could not open page {next_page_no}: {page_error!r}")
                         break

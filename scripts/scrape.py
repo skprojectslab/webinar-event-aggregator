@@ -152,53 +152,29 @@ def event_type(text, fallback):
 
     return fallback
 
+
 def is_non_event_article(url, title=""):
-    """Reject generic pages and editorial content, while preserving individual events."""
-    parsed = urlparse(clean(url))
-    path = parsed.path.lower().rstrip("/")
+    """Reject editorial/blog/round-up pages that are not individual events."""
+    path = urlparse(clean(url)).path.lower()
     title_text = clean(title).lower()
 
-    # Exclude user profile pages.
-    if re.search(r"/user/\d+(?:/profile)?$", path):
-        return True
-
-    # Exclude generic utility and navigation pages.
-    if re.search(
-        r"/(?:contact(?:-us)?|about-us|privacy-policy|terms(?:-and-conditions)?"
-        r"|accessibility|search|login|register|signup|sign-up"
-        r"|press-releases?|media-contacts?)/?$",
+    editorial_path = re.search(
+        r"/(?:insights?|blogs?|blog|news|articles?|thought-leadership|resources)/",
         path,
         re.I,
-    ):
-        return True
-
-    # Exclude generic listing/index pages, not individual event detail pages.
-    if re.search(
-        r"/(?:blogs?|news|articles?|insights?|events?|webinars?|"
-        r"conferences?|resources?|press-releases?)/?$",
-        path,
-        re.I,
-    ):
-        return True
-
-    # Exclude known non-event content patterns.
-    if re.search(
+    )
+    roundup = re.search(
         r"event[\s_-]*round[\s_-]*up|event[\s_-]*roundup",
         path + " " + title_text,
         re.I,
-    ):
-        return True
-
-    # Exclude clearly editorial titles.
-    if re.search(
-        r"\b(?:opinion|commentary|editorial|"
-        r"insights and publications)\b",
+    )
+    editorial_title = re.search(
+        r"\b(?:blog|blogs|opinion|commentary|article|event round[- ]?up)\b",
         title_text,
         re.I,
-    ):
-        return True
+    )
+    return bool(editorial_path or roundup or editorial_title)
 
-    return False
 
 def is_techuk_event_url(url):
     """Allow individual techUK event pages, but not editorial content."""
@@ -689,297 +665,56 @@ with sync_playwright() as p:
                 timeout=60000,
             )
 
-            # techUK now redirects the older calendar URL to /events.
-            # Do not assume a control named exactly "Show more events" exists.
-            # Repeatedly inspect likely load-more/next controls and scroll the
-            # current listing, stopping after several rounds without growth.
+            # techUK uses a client-side "For You" / "All Events" listing
+            # with numbered pagination. Scrolling alone does not load more
+            # cards. Capture each numbered page and merge the extracted records.
+            techuk_page_html = []
             if s["id"] == "techuk":
-                page.wait_for_timeout(4000)
-                print(f"[techUK DEBUG] URL: {page.url}")
-                print(f"[techUK DEBUG] Page title: {page.title()}")
+                page.wait_for_timeout(1800)
 
-                event_link_selector = (
-                    "a[href*='/what-we-deliver/events/'], "
-                    "a[href^='/events/'], "
-                    "a[href*='techuk.org/events/']"
-                )
-                stagnant_rounds = 0
-                total_clicks = 0
-                previous_count = page.locator(event_link_selector).count()
+                # Switch to the complete listing rather than personalised results.
+                try:
+                    all_events_tab = page.get_by_text("All Events", exact=True).last
+                    if all_events_tab.count() and all_events_tab.is_visible():
+                        all_events_tab.click(timeout=5000)
+                        page.wait_for_timeout(1200)
+                        print("[techUK PAGINATION] Selected All Events view.")
+                except Exception as tab_error:
+                    print(f"[techUK PAGINATION] Could not select All Events tab: {tab_error!r}")
 
-                print(
-                    f"[techUK DEBUG] Initial event-path links: {previous_count}"
-                )
+                seen_page_signatures = set()
+                for page_no in range(1, 31):
+                    page.wait_for_timeout(500)
+                    current_html = page.content()
+                    techuk_page_html.append(current_html)
+                    soup_now = BeautifulSoup(current_html, "html.parser")
+                    signature = tuple(sorted({
+                        urljoin(page.url, a.get("href", "")).split("#", 1)[0]
+                        for a in soup_now.select("a[href]")
+                        if "/events/" in a.get("href", "")
+                    }))
+                    print(
+                        f"[techUK PAGINATION] page={page_no}; "
+                        f"event_links={len(signature)}"
+                    )
+                    if not signature or signature in seen_page_signatures:
+                        print("[techUK PAGINATION] Stopping: empty or repeated page signature.")
+                        break
+                    seen_page_signatures.add(signature)
 
-                for attempt in range(15):
-                    clicked = False
-
-                    # Try common accessible names first; the exact wording
-                    # can change between versions of the techUK site.
-                    candidate_selectors = [
-                        page.get_by_role(
-                            "button",
-                            name=re.compile(r"show\s*more|load\s*more|next|more events", re.I),
-                    ),
-                        page.get_by_role(
-                            "link",
-                            name=re.compile(r"show\s*more|load\s*more|next|more events", re.I),
-                    ),
-                        page.locator(
-                            "button[class*='more'], a[class*='more'], "
-                            "button[class*='load'], a[class*='load'], "
-                            "button[aria-label*='next' i], a[aria-label*='next' i], "
-                            "[role='button'][aria-label*='next' i]"
-                        ),
-                    ]
-
-                    for locator in candidate_selectors:
-                        try:
-                            count = locator.count()
-                        except Exception:
-                            continue
-
-                        for index in range(count - 1, -1, -1):
-                            candidate = locator.nth(index)
-                            try:
-                                if not candidate.is_visible():
-                                    continue
-                                label = " ".join(
-                                    candidate.inner_text(timeout=700).split()
-                                )
-                                # Don't click generic "Events" navigation.
-                                if label and not re.search(
-                                    r"show\s*more|load\s*more|more events|^next\b|next page",
-                                    label,
-                                    re.I,
-                                ):
-                                    continue
-
-                                before_click = page.locator(
-                                    event_link_selector
-                                ).count()
-                                candidate.scroll_into_view_if_needed(timeout=2500)
-                                candidate.click(timeout=4000)
-                                page.wait_for_timeout(1400)
-                                after_click = page.locator(
-                                    event_link_selector
-                                ).count()
-
-                                if after_click > before_click:
-                                    total_clicks += 1
-                                    clicked = True
-                                    print(
-                                        f"[techUK DEBUG] Click {total_clicks}: "
-                                        f"{label[:100]!r}; links {before_click}->{after_click}"
-                                    )
-                                    previous_count = after_click
-                                    break
-                            except Exception as exc:
-                                print(
-                                    f"[techUK DEBUG] Candidate control skipped: "
-                                    f"{type(exc).__name__}: {exc}"
-                                )
-
-                        if clicked:
-                            break
-
-                    if not clicked:
-                        # The current /events page may lazy-load as the page
-                        # scrolls, even when no explicit load-more control exists.
-                        try:
-                            page.evaluate(
-                                "window.scrollTo(0, document.body.scrollHeight)"
-                            )
-                        except Exception:
-                            pass
-                        page.wait_for_timeout(1300)
-                        current_count = page.locator(
-                            event_link_selector
-                        ).count()
-                        print(
-                            f"[techUK DEBUG] Scroll round {attempt + 1}: "
-                            f"event-path links={current_count}"
-                        )
-
-                        if current_count > previous_count:
-                            previous_count = current_count
-                            stagnant_rounds = 0
-                        else:
-                            stagnant_rounds += 1
-
-                        if stagnant_rounds >= 3:
-                            print(
-                                "[techUK DEBUG] Stopping after 3 rounds "
-                                "without additional event links."
-                            )
-                            break
-                    else:
-                        stagnant_rounds = 0
-
-                print(f"[techUK DEBUG] Successful load-more clicks: {total_clicks}")
-                print(
-                    "[techUK DEBUG] Final event-path links: "
-                    + str(page.locator(event_link_selector).count())
-                )
-
-                # The ticket platform is protected by a Cloudflare challenge,
-                # so use techUK's own official event-calendar filter URLs instead.
-                # These filtered calendar pages are supplemental; the normal
-                # source page remains the first collection pass.
-                supplemental_items = []
-                filter_values = [
-                    "webinar-1",
-                    "partner-event",
-                    "workshop",
-                    "conference",
-                    "industry-briefing",
-                    "panel-discussion",
-                    "networking",
-                    "forum",
-                    "exhibition",
-                    "roundtable",
-                    "market-briefing",
-                ]
-                seen_calendar_urls = set()
-
-                for filter_value in filter_values:
-                    calendar_page = None
+                    next_page_no = page_no + 1
                     try:
-                        calendar_url = (
-                            "https://www.techuk.org/what-we-deliver/events.html"
-                            f"?type={filter_value}"
+                        next_button = page.get_by_role(
+                            "button", name=f"Go to page {next_page_no}"
                         )
-                        calendar_page = browser.new_page(
-                            user_agent=UA,
-                            viewport={"width": 1440, "height": 1000},
-                        )
-                        calendar_page.goto(
-                            calendar_url,
-                            wait_until="domcontentloaded",
-                            timeout=60000,
-                        )
-                        calendar_page.wait_for_timeout(1200)
-                        final_calendar_url = calendar_page.url
-
-                        # If multiple filters redirect to the same URL, don't
-                        # repeatedly scrape an identical page.
-                        if final_calendar_url in seen_calendar_urls:
-                            print(
-                                f"[techUK DEBUG] Filter {filter_value}: "
-                                f"duplicate final URL; skipped ({final_calendar_url})"
-                            )
-                            continue
-                        seen_calendar_urls.add(final_calendar_url)
-
-                        # Click the legacy calendar's load-more control when
-                        # present. Stop safely if no new event links appear.
-                        selector = (
-                            "a[href*='/what-we-deliver/events/'], "
-                            "a[href^='/events/'], "
-                            "a[href*='techuk.org/events/']"
-                        )
-                        clicks = 0
-                        stagnant = 0
-                        previous = calendar_page.locator(selector).count()
-
-                        for attempt in range(12):
-                            load_more = calendar_page.get_by_text(
-                                re.compile(r"show\s+more\s+events", re.I)
-                            )
-                            clicked = False
-                            try:
-                                count = load_more.count()
-                            except Exception:
-                                count = 0
-
-                            for index in range(count - 1, -1, -1):
-                                control = load_more.nth(index)
-                                try:
-                                    if not control.is_visible():
-                                        continue
-                                    control.scroll_into_view_if_needed(timeout=2500)
-                                    control.click(timeout=4000)
-                                    calendar_page.wait_for_timeout(900)
-                                    current = calendar_page.locator(selector).count()
-                                    if current > previous:
-                                        clicks += 1
-                                        previous = current
-                                        stagnant = 0
-                                        clicked = True
-                                        break
-                                    stagnant += 1
-                                except Exception:
-                                    continue
-
-                            if clicked:
-                                continue
-
-                            # Also scroll in case the filtered calendar uses
-                            # lazy loading rather than an explicit button.
-                            try:
-                                calendar_page.evaluate(
-                                    "window.scrollTo(0, document.body.scrollHeight)"
-                                )
-                            except Exception:
-                                pass
-                            calendar_page.wait_for_timeout(700)
-                            current = calendar_page.locator(selector).count()
-                            if current > previous:
-                                previous = current
-                                stagnant = 0
-                            else:
-                                stagnant += 1
-
-                            if stagnant >= 2:
-                                break
-
-                        calendar_html = calendar_page.content()
-                        extracted = extract(
-                            calendar_html,
-                            final_calendar_url,
-                            s,
-                        )
-                        supplemental_items.extend(extracted)
-                        print(
-                            f"[techUK DEBUG] Official calendar filter={filter_value}; "
-                            f"final_url={final_calendar_url}; clicks={clicks}; "
-                            f"links={previous}; extracted={len(extracted)}"
-                        )
-
-                        # Diagnostic: print the actual records returned by each
-                        # filter to expose overlap between filtered result sets.
-                        for record_index, record in enumerate(extracted, start=1):
-                            record_title = " ".join(
-                                str(record.get("title") or record.get("name") or "(no title)").split()
-                            )
-                            record_url = str(
-                                record.get("url")
-                                or record.get("link")
-                                or record.get("event_url")
-                                or "(no URL field)"
-                            )
-                            print(
-                                f"[techUK EVENT] filter={filter_value}; "
-                                f"item={record_index}; title={record_title}; url={record_url}"
-                            )
-                    except Exception as exc:
-                        print(
-                            f"[techUK DEBUG] Official calendar filter={filter_value} "
-                            f"failed: {type(exc).__name__}: {exc}"
-                        )
-                    finally:
-                        if calendar_page:
-                            calendar_page.close()
-
-                print(
-                    "[techUK DEBUG] Official calendar supplemental records: "
-                    f"{len(supplemental_items)}"
-                )
-                supplemental_ids = [stable_event_id(record) for record in supplemental_items]
-                print(
-                    "[techUK DEBUG] Supplemental unique IDs: "
-                    f"{len(set(supplemental_ids))} / {len(supplemental_ids)} records"
-                )
+                        if next_button.count() == 0 or not next_button.first.is_visible():
+                            print("[techUK PAGINATION] No next numbered page button found.")
+                            break
+                        next_button.first.click(timeout=5000)
+                        page.wait_for_timeout(900)
+                    except Exception as page_error:
+                        print(f"[techUK PAGINATION] Could not open page {next_page_no}: {page_error!r}")
+                        break
 
             else:
                 page.wait_for_timeout(250)
@@ -988,34 +723,30 @@ with sync_playwright() as p:
                 page.evaluate(
                     "window.scrollTo(0, document.body.scrollHeight)"
                 )
+
                 page.wait_for_timeout(1500)
+
 
             html = page.content()
 
             final = page.url
 
-            items = extract(
-                html,
-                final,
-                s,
-            )
-
-            if s["id"] == "techuk":
-                items.extend(supplemental_items)
-
-                # Deduplicate the main page and official filtered-calendar
-                # results using canonical stable IDs.
-                unique_items = []
-                seen_item_ids = set()
-                for item in items:
-                    item_id = stable_event_id(item)
-                    if item_id in seen_item_ids:
-                        continue
-                    seen_item_ids.add(item_id)
-                    unique_items.append(item)
-                items = unique_items
-                print(
-                    f"[techUK DEBUG] Combined unique techUK records: {len(items)}"
+            if s["id"] == "techuk" and techuk_page_html:
+                items = []
+                seen_techuk_urls = set()
+                for page_html in techuk_page_html:
+                    page_items = extract(page_html, final, s)
+                    for item in page_items:
+                        item_url = clean(item.get("event_url", ""))
+                        if item_url and item_url not in seen_techuk_urls:
+                            seen_techuk_urls.add(item_url)
+                            items.append(item)
+                print(f"[techUK PAGINATION] Unique extracted events across captured pages: {len(items)}")
+            else:
+                items = extract(
+                    html,
+                    final,
+                    s,
                 )
 
             all_events.extend(items)
